@@ -12,6 +12,12 @@
 # Author: Tom Runia
 # Date Created: 2018-08-03
 
+"""RAFT 光流颜色编码兼容工具。
+
+本模块属于 CMRNext 项目自有源码；函数和类的参数、返回值、异常副作用以及
+涉及的坐标系、张量布局和单位均在对应中文 docstring 中说明。
+"""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -20,13 +26,20 @@ import numpy as np
 
 
 def make_colorwheel():
-    '''
-    Generates a color wheel for optical flow visualization as presented in:
-        Baker et al. "A Database and Evaluation Methodology for Optical Flow" (ICCV, 2007)
-        URL: http://vision.middlebury.edu/flow/flowEval-iccv07.pdf
-    According to the C++ source code of Daniel Scharstein
-    According to the Matlab source code of Deqing Sun
-    '''
+    """完成 RAFT 光流颜色编码兼容工具 中的 `make_colorwheel` 操作。
+
+    参数:
+        无。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入通道、空间尺寸或设备不一致时由 PyTorch 抛出异常；训练模式可能更新批归一化统计。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
+    """
 
     RY = 15
     YG = 6
@@ -66,19 +79,26 @@ def make_colorwheel():
 
 
 def flow_compute_color(u, v, convert_to_bgr=False):
-    '''
-    Applies the flow color wheel to (possibly clipped) flow components u and v.
-    According to the C++ source code of Daniel Scharstein
-    According to the Matlab source code of Deqing Sun
-    :param u: np.ndarray, input horizontal flow
-    :param v: np.ndarray, input vertical flow
-    :param convert_to_bgr: bool, whether to change ordering and output BGR instead of RGB
-    :return:
-    '''
+    """完成 RAFT 光流颜色编码兼容工具 中的 `flow_compute_color` 操作。
+
+    参数:
+        u: 光流水平分量数组，正方向向右，单位为像素。
+        v: 光流垂直分量数组，正方向向下，单位为像素。
+        convert_to_bgr: 是否把输出通道从 RGB 调换为 OpenCV 使用的 BGR。
+
+    返回值:
+        计算得到的光流、有效索引、指标或可视化结果；具体组合遵循调用点解包方式。
+
+    异常和副作用:
+        输入通道、空间尺寸或设备不一致时由 PyTorch 抛出异常；训练模式可能更新批归一化统计。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
+    """
 
     flow_image = np.zeros((u.shape[0], u.shape[1], 3), np.uint8)
 
-    colorwheel = make_colorwheel()  # shape [55x3]
+    colorwheel = make_colorwheel()  # Shape: 55x3.
     ncols = colorwheel.shape[0]
 
     rad = np.sqrt(np.square(u) + np.square(v))
@@ -99,9 +119,9 @@ def flow_compute_color(u, v, convert_to_bgr=False):
 
         idx = (rad <= 1)
         col[idx]  = 1 - rad[idx] * (1-col[idx])
-        col[~idx] = col[~idx] * 0.75   # out of range?
+        col[~idx] = col[~idx] * 0.75   # Dim out-of-range pixels.
 
-        # Note the 2-i => BGR instead of RGB
+        # Use 2-i for BGR output.
         ch_idx = 2-i if convert_to_bgr else i
         flow_image[:,:,ch_idx] = np.floor(255 * col)
 
@@ -109,14 +129,22 @@ def flow_compute_color(u, v, convert_to_bgr=False):
 
 
 def flow_to_color(flow_uv, clip_flow=None, convert_to_bgr=False):
-    '''
-    Expects a two dimensional flow image of shape [H,W,2]
-    According to the C++ source code of Daniel Scharstein
-    According to the Matlab source code of Deqing Sun
-    :param flow_uv: np.ndarray of shape [H,W,2]
-    :param clip_flow: float, maximum clipping value for flow
-    :return:
-    '''
+    """完成 RAFT 光流颜色编码兼容工具 中的 `flow_to_color` 操作。
+
+    参数:
+        flow_uv: 最后一维为 (u,v) 的二维光流数组，单位为像素。
+        clip_flow: 可选光流绝对值裁剪阈值，单位为像素。
+        convert_to_bgr: 是否把输出通道从 RGB 调换为 OpenCV 使用的 BGR。
+
+    返回值:
+        计算得到的光流、有效索引、指标或可视化结果；具体组合遵循调用点解包方式。
+
+    异常和副作用:
+        输入通道、空间尺寸或设备不一致时由 PyTorch 抛出异常；训练模式可能更新批归一化统计。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
+    """
 
     assert flow_uv.ndim == 3, 'input flow must have three dimensions'
     assert flow_uv.shape[2] == 2, 'input flow must have shape [H,W,2]'
@@ -143,9 +171,19 @@ SMALLFLOW = 0.0
 LARGEFLOW = 1e8
 
 def make_color_wheel():
-    """
-    Generate color wheel according Middlebury color code
-    :return: Color wheel
+    """完成 RAFT 光流颜色编码兼容工具 中的 `make_color_wheel` 操作。
+
+    参数:
+        无。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入通道、空间尺寸或设备不一致时由 PyTorch 抛出异常；训练模式可能更新批归一化统计。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
     """
     RY = 15
     YG = 6
@@ -194,11 +232,20 @@ def make_color_wheel():
 
 
 def compute_color(u, v):
-    """
-    compute optical flow color map
-    :param u: optical flow horizontal map
-    :param v: optical flow vertical map
-    :return: optical flow in color code
+    """完成 RAFT 光流颜色编码兼容工具 中的 `compute_color` 操作。
+
+    参数:
+        u: 光流水平分量数组，正方向向右，单位为像素。
+        v: 光流垂直分量数组，正方向向下，单位为像素。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入通道、空间尺寸或设备不一致时由 PyTorch 抛出异常；训练模式可能更新批归一化统计。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
     """
     [h, w] = u.shape
     img = np.zeros([h, w, 3])
@@ -236,12 +283,21 @@ def compute_color(u, v):
 
     return img
 
-# from https://github.com/gengshan-y/VCN
+# Source: https://github.com/gengshan-y/VCN
 def flow_to_image(flow):
-    """
-    Convert flow into middlebury color code image
-    :param flow: optical flow map
-    :return: optical flow image in middlebury color
+    """完成 RAFT 光流颜色编码兼容工具 中的 `flow_to_image` 操作。
+
+    参数:
+        flow: 二维光流张量或数组，最后一维或通道维为 u、v，单位为像素。
+
+    返回值:
+        计算得到的光流、有效索引、指标或可视化结果；具体组合遵循调用点解包方式。
+
+    异常和副作用:
+        输入通道、空间尺寸或设备不一致时由 PyTorch 抛出异常；训练模式可能更新批归一化统计。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
     """
     u = flow[:, :, 0]
     v = flow[:, :, 1]

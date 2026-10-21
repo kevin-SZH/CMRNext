@@ -7,14 +7,14 @@ ENV LC_ALL C.UTF-8
 ENV ROS_DISTRO noetic
 
 RUN \
-    # Update nvidia GPG key
+    # Update the NVIDIA GPG key.
     rm /etc/apt/sources.list.d/cuda.list && \
     apt-key del 7fa2af80 && \
     apt-get update && apt-get install -y --no-install-recommends wget && \
     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb && \
     dpkg -i cuda-keyring_1.0-1_all.deb
 
-# preseed tzdata, update package index, upgrade packages and install needed software
+# Configure the timezone and install system packages.
 RUN truncate -s0 /tmp/preseed.cfg; \
     echo "tzdata tzdata/Areas select Europe" >> /tmp/preseed.cfg; \
     echo "tzdata tzdata/Zones/Europe select Berlin" >> /tmp/preseed.cfg; \
@@ -25,7 +25,7 @@ RUN truncate -s0 /tmp/preseed.cfg; \
 RUN apt-get update && apt-get install -y unzip nano build-essential git byobu curl xclip make cmake
 RUN apt-get update && apt-get install -y unzip nano build-essential git byobu curl xclip python3 python3-pip make cmake
 
-# Additional dependencies for CMRNext
+# Install CMRNext dependencies.
 RUN pip3 install torch==1.11.0+cu113 torchvision==0.12.0+cu113 torchaudio==0.11.0 --extra-index-url https://download.pytorch.org/whl/cu113
 RUN pip3 install numpy==1.20.3 scikit-image pyquaternion tqdm python-dateutil==2.8.2 open3d pillow==10.3.0 mathutils==2.81.2
 
@@ -35,7 +35,7 @@ RUN unzip 4.7.0.zip
 RUN git clone https://github.com/opencv/opencv_contrib.git
 WORKDIR /root/opencv/opencv_contrib
 RUN git checkout 4.7.0
-# Remove all unnecessary modules
+# Remove unused modules.
 RUN rm -rf ./modules/alphamat/ ./modules/aruco/ ./modules/barcode/ ./modules/bgsegm/ ./modules/bioinspired/ ./modules/ccalib/ ./modules/cnn_3dobj/ ./modules/cudabgsegm/ ./modules/cudacodec/ ./modules/cudafeatures2d/ ./modules/cudaobjdetect/ ./modules/cudastereo/ ./modules/cvv/ ./modules/datasets/ ./modules/dnn_objdetect/ ./modules/dnn_superres/ ./modules/dnns_easily_fooled/ ./modules/dpm/ ./modules/face/ ./modules/freetype/ ./modules/fuzzy/ ./modules/hdf/ ./modules/hfs/ ./modules/img_hash/ ./modules/intensity_transform/ ./modules/julia/ ./modules/line_descriptor/ ./modules/matlab/ ./modules/mcc/ ./modules/ovis/ ./modules/phase_unwrapping/ ./modules/quality/ ./modules/rapid/ ./modules/README.md ./modules/reg/ ./modules/rgbd/ ./modules/saliency/ ./modules/sfm/ ./modules/shape/ ./modules/stereo/ ./modules/structured_light/ ./modules/superres/ ./modules/surface_matching/ ./modules/text/ ./modules/videostab/ ./modules/viz/ ./modules/wechat_qrcode/ ./modules/xfeatures2d/ ./modules/xobjdetect/ ./modules/xphoto/
 COPY ./pythoncuda /root/opencv/opencv_contrib/modules/pythoncuda
 WORKDIR /root/opencv

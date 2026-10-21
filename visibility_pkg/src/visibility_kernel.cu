@@ -6,23 +6,26 @@
 #include <cuda_runtime.h>
 
     #define IMAGE_SIZE 10000
-    #define TILE_W 25	//Tile Width
-    #define TILE_H 25	//Tile Height
-    #define R 3		//Filter Radius
-    #define D (2*R+1)	//Filter Diameter
+    #define TILE_W 25	// Tile width.
+    #define TILE_H 25	// Tile height.
+    #define R 3		// Filter radius.
+    #define D (2*R+1)	// Filter diameter.
     #define BLOCK_W (TILE_W+(2*R))
     #define BLOCK_H (TILE_H+(2*R))
 
 
+// Encode nonnegative depth as order-preserving integers for atomicMin.
 __device__ __forceinline__ int floatToOrderedInt( float floatVal ) {
  int intVal = __float_as_int( floatVal );
  return (intVal >= 0 ) ? intVal : intVal ^ 0x7FFFFFFF;
 }
 
 __device__ __forceinline__ float orderedIntToFloat( int intVal ) {
+ // Decode an ordered integer back to float.
  return __int_as_float( (intVal >= 0) ? intVal : intVal ^ 0x7FFFFFFF);
 }
 
+// Keep the nearest depth per projected pixel with atomicMin.
 __global__ void depth_image_kernel(
     const int* __restrict__ in_uv, 
     const float* __restrict__ in_depth,
@@ -38,38 +41,20 @@ __global__ void depth_image_kernel(
     }
 
 template <typename scalar_t>
+// Remove occluded pixels using a fixed 7x7 depth neighborhood.
 __global__ void visibility_kernel(
     const scalar_t* __restrict__ in, 
     scalar_t* __restrict__  out, 
     unsigned int width, unsigned int height, unsigned int threshold) {
-    //__shared__ scalar_t sharedImg[BLOCK_W*BLOCK_H];
-    //int x = blockIdx.x*TILE_W + threadIdx.x - R;
-    //int y = blockIdx.y*TILE_H + threadIdx.y - R;
-
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
 
-    // clamp to edge of image
+    // Clamp to image bounds.
     x = max(0, x);
     x = min(x, height-1);
     y = max(y, 0);
     y = min(y, width-1);
-    //unsigned int index = y*width + x;
     unsigned int index = x*width + y;
-    //unsigned int bindex = threadIdx.y*blockDim.y+threadIdx.x;
-
-    // each thread copy its pixel to the shared memory
-    //sharedImg[bindex] = in[index];
-    //__syncthreads();
-
-    //index = 
-
-    //out[index] = 7.0;
-    //return;
-
-    // only threads inside the apron write the results
-    //if ((threadIdx.x >= R) && (threadIdx.x < (BLOCK_W-R)) &&
-    //        (threadIdx.y >= R) && (threadIdx.y < (BLOCK_H-R))) {
     out[index] = in[index];
     if(x >= R && y >= R && x < (height-R) && y < (width-R)) {
         scalar_t pixel = in[index];
@@ -98,6 +83,7 @@ __global__ void visibility_kernel(
 
 
 template <typename scalar_t>
+// Return the squared 3D norm.
 __device__ __forceinline__ scalar_t norm(scalar_t x, scalar_t y, scalar_t z) {
     scalar_t sum = x*x + y*y + z*z;
     return sum;
@@ -105,6 +91,7 @@ __device__ __forceinline__ scalar_t norm(scalar_t x, scalar_t y, scalar_t z) {
 
 
 template <typename scalar_t>
+// Back-project neighbors with [fx,fy,cx,cy] and filter geometric occlusion.
 __global__ void visibility_kernel2(
     const scalar_t* __restrict__ in_depth,
     const scalar_t* __restrict__ intrinsic,
@@ -114,13 +101,12 @@ __global__ void visibility_kernel2(
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
 
-    // clamp to edge of image
+    // Clamp to image bounds.
     x = max(0, x);
     x = min(x, height-1);
     y = max(y, 0);
     y = min(y, width-1);
 
-    //unsigned int index = y*width + x;
     unsigned int index = x*width + y;
     out[index] = in_depth[index];
 
@@ -322,6 +308,7 @@ __global__ void visibility_kernel2(
 
 
 template <typename scalar_t>
+// Aggregate valid 2D flow over kernel-sized windows.
 __global__ void downsample_flow_kernel(
     const scalar_t* __restrict__ in, 
     scalar_t* __restrict__  out, 
@@ -330,19 +317,12 @@ __global__ void downsample_flow_kernel(
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
 
-    // clamp to edge of image
-    // x = max(0, x);
-    //x = min(x, height_out-1);
-    //y = max(y, 0);
-    //y = min(y, width_out-1);
-
     scalar_t center = ((scalar_t)kernel-1.0)/2.0;
     
     unsigned int in_index = (kernel*x) * (kernel*width_out) + (kernel*y);
     unsigned int out_index = x*width_out + y;
 
     if (x >= 0 && x < height_out && y >= 0 && y < width_out) {
-        //printf("out_index: %d, %d   -   in_pixel: %d, %d\n", x, y, x*kernel, y*kernel);
         scalar_t mean_u=0;
         scalar_t mean_v=0;
         scalar_t weights=0.0;
@@ -375,6 +355,7 @@ __global__ void downsample_flow_kernel(
 }
 
 
+// Aggregate integer validity over kernel-sized windows.
 __global__ void downsample_mask_kernel(
     const int* __restrict__ in, 
     int* __restrict__  out, 
@@ -383,17 +364,10 @@ __global__ void downsample_mask_kernel(
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
 
-    // clamp to edge of image
-    // x = max(0, x);
-    //x = min(x, height_out-1);
-    //y = max(y, 0);
-    //y = min(y, width_out-1);
-    
     unsigned int in_index = (kernel*x) * (kernel*width_out) + (kernel*y);
     unsigned int out_index = x*width_out + y;
 
     if (x >= 0 && x < height_out && y >= 0 && y < width_out) {
-        //printf("out_index: %d, %d   -   in_pixel: %d, %d\n", x, y, x*kernel, y*kernel);
         bool active = false;
         for(int i=0; i<kernel; i++) {
             for(int j=0; j<kernel; j++) {
@@ -416,6 +390,7 @@ __global__ void downsample_mask_kernel(
 
 
 template <typename scalar_t>
+// Compute center-weighted nonzero depth over kernel-sized windows.
 __global__ void downsample_depth_kernel(
     const scalar_t* __restrict__ in, 
     scalar_t* __restrict__  out, 
@@ -430,7 +405,6 @@ __global__ void downsample_depth_kernel(
     unsigned int out_index = x*width_out + y;
 
     if (x >= 0 && x < height_out && y >= 0 && y < width_out) {
-        //printf("out_index: %d, %d   -   in_pixel: %d, %d\n", x, y, x*kernel, y*kernel);
         scalar_t mean_depth=0;
         scalar_t weights=0.0;
         unsigned int count = 0;
@@ -455,84 +429,59 @@ __global__ void downsample_depth_kernel(
 }
 
 
-
+// Launch the in-place z-buffer kernel.
 at::Tensor depth_image_cuda(at::Tensor input_uv, at::Tensor input_depth, at::Tensor output, unsigned int size, unsigned int width,unsigned int height) {
-    //dim3 threads(BLOCK_W, BLOCK_H);
-    //dim3 blocks((height)/TILE_W, (width)/TILE_H);
     dim3 threads(512);
     dim3 blocks(size/512+1);
-    depth_image_kernel<<<blocks, threads>>>(input_uv.data<int>(), input_depth.data<float>(), output.data<float>(), size, width, height);
-    //visibility_kernel<float><<<blocks, threads>>>(input.data<float>(), output.data<float>(), width, height, threshold);
+    depth_image_kernel<<<blocks, threads>>>(input_uv.data_ptr<int>(), input_depth.data_ptr<float>(), output.data_ptr<float>(), size, width, height);
     return output;
 }
 
 
+// Launch the fixed 7x7 visibility filter.
 at::Tensor visibility_filter_cuda(at::Tensor input, at::Tensor output, unsigned int width,unsigned int height, unsigned int threshold) {
-    //dim3 threads(BLOCK_W, BLOCK_H);
-    //dim3 blocks((height)/TILE_W, (width)/TILE_H);
     dim3 threads(32, 32);
     dim3 blocks(height/32, width/32);
-    AT_DISPATCH_FLOATING_TYPES(input.type(), "visibility_filter", ([&] {
-        visibility_kernel<scalar_t><<<blocks, threads>>>(input.data<scalar_t>(), output.data<scalar_t>(), width, height, threshold);}));
-    //visibility_kernel<float><<<blocks, threads>>>(input.data<float>(), output.data<float>(), width, height, threshold);
+    AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "visibility_filter", ([&] {
+        visibility_kernel<scalar_t><<<blocks, threads>>>(input.data_ptr<scalar_t>(), output.data_ptr<scalar_t>(), width, height, threshold);}));
     return output;
 }
 
+// Launch the intrinsic-aware geometric visibility filter.
 at::Tensor visibility_filter_cuda2(at::Tensor input_depth, at::Tensor intrinsic, at::Tensor output, unsigned int width,unsigned int height, float threshold, unsigned int radius) {
-    //dim3 threads(BLOCK_W, BLOCK_H);
-    //dim3 blocks((height)/TILE_W, (width)/TILE_H);
     dim3 threads(32, 32);
     dim3 blocks(height/32+1, width/32+1);
-    AT_DISPATCH_FLOATING_TYPES(input_depth.type(), "visibility_filter2", ([&] {
-        visibility_kernel2<scalar_t><<<blocks, threads>>>(input_depth.data<scalar_t>(), intrinsic.data<scalar_t>(), 
-                                                          output.data<scalar_t>(), width, height, threshold, radius);}));
-    //visibility_kernel<float><<<blocks, threads>>>(input.data<float>(), output.data<float>(), width, height, threshold);
+    AT_DISPATCH_FLOATING_TYPES(input_depth.scalar_type(), "visibility_filter2", ([&] {
+        visibility_kernel2<scalar_t><<<blocks, threads>>>(input_depth.data_ptr<scalar_t>(), intrinsic.data_ptr<scalar_t>(),
+                                                          output.data_ptr<scalar_t>(), width, height, threshold, radius);}));
     return output;
 }
 
+// Launch in-place 2D flow downsampling.
 at::Tensor downsample_flow_cuda(at::Tensor input_uv, at::Tensor output, unsigned int width_out ,unsigned int height_out, unsigned int kernel) {
-    //dim3 threads(BLOCK_W, BLOCK_H);
-    //dim3 blocks((height)/TILE_W, (width)/TILE_H);
     dim3 threads(32, 32);
     dim3 blocks(height_out/32+1, width_out/32+1);
-    AT_DISPATCH_FLOATING_TYPES(input_uv.type(), "downsample_flow", ([&] {
-        downsample_flow_kernel<scalar_t><<<blocks, threads>>>(input_uv.data<scalar_t>(), output.data<scalar_t>(), 
+    AT_DISPATCH_FLOATING_TYPES(input_uv.scalar_type(), "downsample_flow", ([&] {
+        downsample_flow_kernel<scalar_t><<<blocks, threads>>>(input_uv.data_ptr<scalar_t>(), output.data_ptr<scalar_t>(),
                                                               width_out, height_out, kernel);}));
-    //visibility_kernel<float><<<blocks, threads>>>(input.data<float>(), output.data<float>(), width, height, threshold);
     return output;
 }
 
+// Launch in-place int32 mask downsampling.
 at::Tensor downsample_mask_cuda(at::Tensor input_mask, at::Tensor output, unsigned int width_out ,unsigned int height_out, unsigned int kernel) {
-    //dim3 threads(BLOCK_W, BLOCK_H);
-    //dim3 blocks((height)/TILE_W, (width)/TILE_H);
     dim3 threads(32, 32);
     dim3 blocks(height_out/32+1, width_out/32+1);
-    downsample_mask_kernel<<<blocks, threads>>>(input_mask.data<int>(), output.data<int>(), 
+    downsample_mask_kernel<<<blocks, threads>>>(input_mask.data_ptr<int>(), output.data_ptr<int>(),
                                               width_out, height_out, kernel);
-    //visibility_kernel<float><<<blocks, threads>>>(input.data<float>(), output.data<float>(), width, height, threshold);
     return output;
 }
 
+// Launch in-place nonzero-depth downsampling.
 at::Tensor downsample_depth_cuda(at::Tensor input_depth, at::Tensor output, unsigned int width_out ,unsigned int height_out, unsigned int kernel) {
-    //dim3 threads(BLOCK_W, BLOCK_H);
-    //dim3 blocks((height)/TILE_W, (width)/TILE_H);
     dim3 threads(32, 32);
     dim3 blocks(height_out/32+1, width_out/32+1);
-    AT_DISPATCH_FLOATING_TYPES(input_depth.type(), "downsample_depth", ([&] {
-        downsample_depth_kernel<scalar_t><<<blocks, threads>>>(input_depth.data<scalar_t>(), output.data<scalar_t>(), 
+    AT_DISPATCH_FLOATING_TYPES(input_depth.scalar_type(), "downsample_depth", ([&] {
+        downsample_depth_kernel<scalar_t><<<blocks, threads>>>(input_depth.data_ptr<scalar_t>(), output.data_ptr<scalar_t>(),
                                                               width_out, height_out, kernel);}));
-    //visibility_kernel<float><<<blocks, threads>>>(input.data<float>(), output.data<float>(), width, height, threshold);
     return output;
 }
-
-
-/*at::Tensor visibility_filter_cuda_shared(at::Tensor input_depth, at::Tensor input_points, at::Tensor output, unsigned int width,unsigned int height, float threshold) {
-    dim3 threads(BLOCK_W, BLOCK_H);
-    dim3 blocks((height)/TILE_W, (width)/TILE_H);
-    //dim3 threads(32, 32);
-    //dim3 blocks(height/32, width/32);
-    AT_DISPATCH_FLOATING_TYPES(input_depth.type(), "visibility_filter2", ([&] {
-        visibility_kernel_shared<scalar_t><<<blocks, threads>>>(input_depth.data<scalar_t>(), input_points.data<scalar_t>(), output.data<scalar_t>(), width, height, threshold);}));
-    //visibility_kernel<float><<<blocks, threads>>>(input.data<float>(), output.data<float>(), width, height, threshold);
-    return output;
-}*/

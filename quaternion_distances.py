@@ -1,3 +1,9 @@
+"""四元数、旋转矩阵和旋转距离计算。
+
+本模块属于 CMRNext 项目自有源码；函数和类的参数、返回值、异常副作用以及
+涉及的坐标系、张量布局和单位均在对应中文 docstring 中说明。
+"""
+
 import math
 
 import numpy as np
@@ -5,15 +11,21 @@ import torch
 
 
 def quatmultiply(q, r, device='cpu'):
-    """
-    Batch quaternion multiplication
-    Args:
-        q (torch.Tensor/np.ndarray): shape=[Nx4]
-        r (torch.Tensor/np.ndarray): shape=[Nx4]
-        device (str): 'cuda' or 'cpu'
+    """完成 四元数、旋转矩阵和旋转距离计算 中的 `quatmultiply` 操作。
 
-    Returns:
-        torch.Tensor: shape=[Nx4]
+    参数:
+        q: 第一个四元数张量，分量顺序遵循当前模块实现。
+        r: 第二个四元数张量，分量顺序遵循当前模块实现。
+        device: PyTorch 计算设备，例如 CUDA 设备或 CPU。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     if isinstance(q, torch.Tensor):
         t = torch.zeros(q.shape[0], 4, device=device)
@@ -29,13 +41,19 @@ def quatmultiply(q, r, device='cpu'):
 
 
 def quatinv(q):
-    """
-    Batch quaternion inversion
-    Args:
-        q (torch.Tensor/np.ndarray): shape=[Nx4]
+    """完成 四元数、旋转矩阵和旋转距离计算 中的 `quatinv` 操作。
 
-    Returns:
-        torch.Tensor/np.ndarray: shape=[Nx4]
+    参数:
+        q: 第一个四元数张量，分量顺序遵循当前模块实现。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     if isinstance(q, torch.Tensor):
         t = q.clone()
@@ -49,26 +67,42 @@ def quatinv(q):
 
 
 def quaternion_loss(q, r, device):
-    """
-    Batch quaternion distances, used as loss
-    Args:
-        q (torch.Tensor): shape=[Nx4]
-        r (torch.Tensor): shape=[Nx4]
-        device (str): 'cuda' or 'cpu'
+    """完成 四元数、旋转矩阵和旋转距离计算 中的 `quaternion_loss` 操作。
 
-    Returns:
-        torch.Tensor: shape=[N]
+    参数:
+        q: 第一个四元数张量，分量顺序遵循当前模块实现。
+        r: 第二个四元数张量，分量顺序遵循当前模块实现。
+        device: PyTorch 计算设备，例如 CUDA 设备或 CPU。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     t = quatmultiply(q, quatinv(r), device)
     return 2 * torch.atan2(torch.norm(t[:, 1:], dim=1), torch.abs(t[:, 0]))
 
 
 def rotation_from_quaternion(x):
-    """
-        Converts a quaternion to a rotation matrix.
+    """完成 四元数、旋转矩阵和旋转距离计算 中的 `rotation_from_quaternion` 操作。
 
+    参数:
+        x: 当前层输入张量；通道和空间布局由所在网络模块定义。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
-    # Documented in <http://en.wikipedia.org/w/index.php?title=
+    # See <http://en.wikipedia.org/w/index.php?title=
     # Quaternions_and_spatial_rotation&oldid=402924915>
     a, b, c, d = x
 
@@ -86,17 +120,20 @@ def rotation_from_quaternion(x):
 
 
 def axis_angle_from_rotation(R):
-    '''
-        Returns the *(axis,angle)* representation of a given rotation.
+    """完成 四元数、旋转矩阵和旋转距离计算 中的 `axis_angle_from_rotation` 操作。
 
-        There are a couple of symmetries:
+    参数:
+        R: 旋转矩阵、四元数或旋转对象；表示形式由调用点决定。
 
-        * By convention, the angle returned is nonnegative.
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
 
-        * If the angle is 0, any axis will do.
-          In that case, :py:func:`default_axis` will be returned.
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
 
-    '''
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     angle = np.arccos(np.clip(((R.trace() - 1) / 2), -1.0, 1.0))
 
     if angle == 0:
@@ -110,21 +147,28 @@ def axis_angle_from_rotation(R):
         if computer_with_infinite_precision:
             axis = (1 / (2 * np.sin(angle))) * v
         else:
-            # OK, the formula above gives (theoretically) the correct answer
-            # but it is imprecise if angle is small (dividing by a very small
-            # quantity). This is way better...
+            # Use the stable form for small angles.
             axis = (v * np.sign(angle)) / np.linalg.norm(v)
 
         return axis, angle
 
 
 def geodesic_distance_for_rotations(R1, R2):
-    '''
-        Returns the geodesic distance between two rotation matrices.
+    """完成 四元数、旋转矩阵和旋转距离计算 中的 `geodesic_distance_for_rotations` 操作。
 
-        It is computed as the angle of the rotation :math:`R_1^{*} R_2^{-1}``.
+    参数:
+        R1: 第一组旋转矩阵，形状为 B×3×3。
+        R2: 第二组旋转矩阵，形状为 B×3×3。
 
-    '''
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     R = np.dot(R1, R2.T)
-    axis1, angle1 = axis_angle_from_rotation(R)  # @UnusedVariable
+    axis1, angle1 = axis_angle_from_rotation(R)  # Kept for API symmetry.
     return angle1

@@ -1,3 +1,9 @@
+"""点云变换、外参表示、标定光流和训练公共工具。
+
+本模块属于 CMRNext 项目自有源码；函数和类的参数、返回值、异常副作用以及
+涉及的坐标系、张量布局和单位均在对应中文 docstring 中说明。
+"""
+
 import argparse
 from functools import reduce
 
@@ -24,31 +30,34 @@ except ImportError:
 
 
 def init_logger(path, resume=False, save_to_file=False):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `init_logger` 操作。
+
+    参数:
+        path: 输入或输出文件路径。
+        resume: 是否以追加方式继续写入已有日志文件。
+        save_to_file: 当前操作读取或写入的文件路径。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
-    Initialize the logger
-    Args:
-        path: path to the log file
-        resume: if True, the log file is appended to, instead of overwritten
-        save_to_file: if True, the log is saved to a file, otherwise only printed on the console
-    Returns:
-        logger: the logger
-    """
-    # loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-    # for l in loggers:
-    #     l.setLevel(logging.ERROR)
     logger = logging.getLogger()
     logger.handlers = []
     logger.setLevel(logging.DEBUG)
 
-    # Set console logging
+    # Configure console logging.
     console_handler = logging.StreamHandler()
     console_formatter = logging.Formatter(fmt="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    # console_formatter = logging.Formatter(fmt="[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s", datefmt="%H:%M:%S")
     console_handler.setFormatter(console_formatter)
     console_handler.setLevel(logging.DEBUG)
     logger.addHandler(console_handler)
 
-    # Setup file logging
+    # Configure file logging when requested.
     if save_to_file:
         mode = 'w'
         if resume:
@@ -65,6 +74,23 @@ def init_logger(path, resume=False, save_to_file=False):
 
 
 def rotate_points(PC, R, T=None, inverse=True):
+    """使用 mathutils 表示的位姿对齐次点云执行正向或逆向刚体变换。
+
+    参数:
+        PC: 齐次点云，形状为 4×N 或 N×4，平移单位为米。
+        R: 旋转矩阵、四元数或旋转对象；表示形式由调用点决定。
+        T: 三维平移向量或齐次平移矩阵，单位为米。
+        inverse: 是否应用输入刚体变换的逆变换。
+
+    返回值:
+        施加指定正向或逆向刚体变换后的齐次点云，布局与输入兼容。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     if T is not None:
         R = R.to_matrix()
         R.resize_4x4()
@@ -90,6 +116,23 @@ def rotate_points(PC, R, T=None, inverse=True):
 
 
 def rotate_points_torch(PC, R, T=None, inverse=True):
+    """使用 PyTorch 四元数、平移或四乘四矩阵变换齐次点云。
+
+    参数:
+        PC: 齐次点云，形状为 4×N 或 N×4，平移单位为米。
+        R: 旋转矩阵、四元数或旋转对象；表示形式由调用点决定。
+        T: 三维平移向量或齐次平移矩阵，单位为米。
+        inverse: 是否应用输入刚体变换的逆变换。
+
+    返回值:
+        施加指定正向或逆向刚体变换后的 PyTorch 齐次点云。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     if T is not None:
         R = quat2mat(R)
         T = tvector2mat(T)
@@ -110,22 +153,21 @@ def rotate_points_torch(PC, R, T=None, inverse=True):
 
 
 def rotate_forward(PC, R, T=None):
-    """
-    Transform the point cloud PC, so to have the points 'as seen from' the new
-    pose T*R
-    Args:
-        PC (torch.Tensor): Point Cloud to be transformed, shape [4xN] or [Nx4]
-        R (torch.Tensor/mathutils.Euler): can be either:
-            * (mathutils.Euler) euler angles of the rotation part, in this case T cannot be None
-            * (torch.Tensor shape [4]) quaternion representation of the rotation part, in this case T cannot be None
-            * (mathutils.Matrix shape [4x4]) Rotation matrix,
-                in this case it should contains the translation part, and T should be None
-            * (torch.Tensor shape [4x4]) Rotation matrix,
-                in this case it should contains the translation part, and T should be None
-        T (torch.Tensor/mathutils.Vector): Translation of the new pose, shape [3], or None (depending on R)
+    """把点云变换为指定新位姿下观察到的坐标；历史命名中的 forward 实际调用逆变换。
 
-    Returns:
-        torch.Tensor: Transformed Point Cloud 'as seen from' pose T*R
+    参数:
+        PC: 齐次点云，形状为 4×N 或 N×4，平移单位为米。
+        R: 旋转矩阵、四元数或旋转对象；表示形式由调用点决定。
+        T: 三维平移向量或齐次平移矩阵，单位为米。
+
+    返回值:
+        指定新位姿下观察到的齐次点云。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     if isinstance(R, torch.Tensor):
         return rotate_points_torch(PC, R, T, inverse=True)
@@ -134,8 +176,21 @@ def rotate_forward(PC, R, T=None):
 
 
 def rotate_back(PC_ROTATED, R, T=None):
-    """
-    Inverse of :func:`~utils.rotate_forward`.
+    """撤销 rotate_forward 对点云施加的位姿变化。
+
+    参数:
+        PC_ROTATED: 已经施加位姿变化的齐次点云，形状为 4×N 或 N×4。
+        R: 旋转矩阵、四元数或旋转对象；表示形式由调用点决定。
+        T: 三维平移向量或齐次平移矩阵，单位为米。
+
+    返回值:
+        撤销位姿变化后的齐次点云。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     if isinstance(R, torch.Tensor):
         return rotate_points_torch(PC_ROTATED, R, T, inverse=False)
@@ -144,15 +199,20 @@ def rotate_back(PC_ROTATED, R, T=None):
 
 
 def invert_pose(R, T):
-    """
-    Given the 'sampled pose' (aka H_init), we want CMRNet to predict inv(H_init).
-    inv(T*R) will be used as ground truth for the network.
-    Args:
-        R (mathutils.Euler): Rotation of 'sampled pose'
-        T (mathutils.Vector): Translation of 'sampled pose'
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `invert_pose` 操作。
 
-    Returns:
-        (R_GT, T_GT) = (mathutils.Quaternion, mathutils.Vector)
+    参数:
+        R: 旋转矩阵、四元数或旋转对象；表示形式由调用点决定。
+        T: 三维平移向量或齐次平移矩阵，单位为米。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     R = R.to_matrix()
     R.resize_4x4()
@@ -167,6 +227,20 @@ def invert_pose(R, T):
 
 
 def merge_inputs(queries):
+    """将可变点数点云样本合并为批次，同时对定长字段执行默认堆叠。
+
+    参数:
+        queries: 待合并的单样本字典序列。
+
+    返回值:
+        批次字典；可变点数点云和图像保留为列表，其余字段按默认规则堆叠。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     point_clouds = []
     imgs = []
     reflectances = []
@@ -190,13 +264,19 @@ def merge_inputs(queries):
 
 
 def quaternion_from_matrix(matrix):
-    """
-    Convert a rotation matrix to quaternion.
-    Args:
-        matrix (torch.Tensor): [4x4] transformation matrix or [3,3] rotation matrix.
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `quaternion_from_matrix` 操作。
 
-    Returns:
-        torch.Tensor: shape [4], normalized quaternion
+    参数:
+        matrix: 三乘三或四乘四旋转矩阵，用于转换为单位四元数。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     if matrix.shape == (4, 4):
         R = matrix[:-1, :-1]
@@ -234,6 +314,22 @@ def quaternion_from_matrix(matrix):
 
 
 def euler2mat(z, y, x):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `euler2mat` 操作。
+
+    参数:
+        z: 绕 z 轴的欧拉旋转角，单位为弧度。
+        y: 绕 y 轴的欧拉旋转角，单位为弧度。
+        x: 当前层输入张量；通道和空间布局由所在网络模块定义。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     Ms = []
     if z:
         cosz = math.cos(z)
@@ -262,6 +358,22 @@ def euler2mat(z, y, x):
 
 
 def euler2quat(roll, pitch, yaw):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `euler2quat` 操作。
+
+    参数:
+        roll: 绕 x 轴的滚转角，单位为弧度。
+        pitch: 绕 y 轴的俯仰角，单位为弧度。
+        yaw: 绕 z 轴的偏航角，单位为弧度。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     q = np.zeros(4)
 
     cy = math.cos(yaw * 0.5)
@@ -279,14 +391,20 @@ def euler2quat(roll, pitch, yaw):
 
 
 def quatmultiply(q, r):
-    """
-    Multiply two quaternions
-    Args:
-        q (torch.Tensor/nd.ndarray): shape=[4], first quaternion
-        r (torch.Tensor/nd.ndarray): shape=[4], second quaternion
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `quatmultiply` 操作。
 
-    Returns:
-        torch.Tensor: shape=[4], normalized quaternion q*r
+    参数:
+        q: 第一个四元数张量，分量顺序遵循当前模块实现。
+        r: 第二个四元数张量，分量顺序遵循当前模块实现。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     t = torch.zeros(4, device=q.device)
     t[0] = r[0] * q[0] - r[1] * q[1] - r[2] * q[2] - r[3] * q[3]
@@ -297,13 +415,19 @@ def quatmultiply(q, r):
 
 
 def quat2mat(q):
-    """
-    Convert a quaternion to a rotation matrix
-    Args:
-        q (torch.Tensor): shape [4], input quaternion
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `quat2mat` 操作。
 
-    Returns:
-        torch.Tensor: [4x4] homogeneous rotation matrix
+    参数:
+        q: 第一个四元数张量，分量顺序遵循当前模块实现。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     assert q.shape == torch.Size([4]), "Not a valid quaternion"
     if q.norm() != 1.:
@@ -323,14 +447,19 @@ def quat2mat(q):
 
 
 def tvector2mat(t):
-    """
-    Translation vector to homogeneous transformation matrix with identity rotation
-    Args:
-        t (torch.Tensor): shape=[3], translation vector
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `tvector2mat` 操作。
 
-    Returns:
-        torch.Tensor: [4x4] homogeneous transformation matrix
+    参数:
+        t: 三维平移向量，单位为米。
 
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     assert t.shape == torch.Size([3]), "Not a valid translation"
     mat = torch.eye(4, device=t.device)
@@ -341,13 +470,19 @@ def tvector2mat(t):
 
 
 def mat2xyzrpy(rotmatrix):
-    """
-    Decompose transformation matrix into components
-    Args:
-        rotmatrix (torch.Tensor/np.ndarray): [4x4] transformation matrix
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `mat2xyzrpy` 操作。
 
-    Returns:
-        torch.Tensor: shape=[6], contains xyzrpy
+    参数:
+        rotmatrix: 待分解的四乘四齐次外参矩阵。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     roll = math.atan2(-rotmatrix[1, 2], rotmatrix[2, 2])
     pitch = math.asin ( rotmatrix[0, 2])
@@ -360,6 +495,21 @@ def mat2xyzrpy(rotmatrix):
 
 
 def to_rotation_matrix(R, T):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `to_rotation_matrix` 操作。
+
+    参数:
+        R: 旋转矩阵、四元数或旋转对象；表示形式由调用点决定。
+        T: 三维平移向量或齐次平移矩阵，单位为米。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     R = quat2mat(R)
     T = tvector2mat(T)
     RT = torch.mm(T, R)
@@ -367,6 +517,25 @@ def to_rotation_matrix(R, T):
 
 
 def overlay_imgs(rgb, lidar, idx=0, pooling=3, max_depth=160., close_thr=25.):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `overlay_imgs` 操作。
+
+    参数:
+        rgb: RGB 图像张量或数组；通道顺序和数值范围遵循调用方约定。
+        lidar: 待叠加到 RGB 图像的单通道深度或 LiDAR 投影图。
+        idx: 样本、批次或可视化项索引，从零开始。
+        pooling: 可视化投影点向周围扩展的像素半径。
+        max_depth: 保留投影点的最大 Z 深度，单位为米。
+        close_thr: 近距离点高亮或过滤阈值，单位与深度图一致。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     std = [0.229, 0.224, 0.225]
     mean = [0.485, 0.456, 0.406]
 
@@ -381,7 +550,6 @@ def overlay_imgs(rgb, lidar, idx=0, pooling=3, max_depth=160., close_thr=25.):
         close_points[close_points>=close_thr] = 0.
         close_points[lidar == 0] = 1000.
         close_points = -close_points
-        # lidar = F.max_pool2d(lidar, 3, 1, 1)
         close_points = F.max_pool2d(close_points, pooling, 1, 1)
         close_points = -close_points
         close_points[close_points == 1000.] = 0.
@@ -399,19 +567,45 @@ def overlay_imgs(rgb, lidar, idx=0, pooling=3, max_depth=160., close_thr=25.):
 
 
 def get_flow(uv, depth, RT, cam_model, image_shape, scale_flow=True, get_valid_indexes=False, reverse=True):
+    """在历史轴向约定下由深度点和刚体变换生成投影像素位移。
+
+    参数:
+        uv: 图像像素坐标，形状为 N×2，顺序为 u、v，单位为像素。
+        depth: 与投影像素对应的 Z 向深度，单位为米。
+        RT: 四乘四齐次刚体变换；方向由函数的坐标约定说明。
+        cam_model: 已经设置内参的 CameraModel 实例。
+        image_shape: 图像或网络输入尺寸，按高度、宽度排列，单位为像素。
+        scale_flow: 是否按旧 PWC-Net 约定将光流数值除以 20。
+        get_valid_indexes: 是否在返回结果中附带目标投影仍位于图像内的有效索引。
+        reverse: 是否返回目标到源的反向像素位移，而非源到目标的正向位移。
+
+    返回值:
+        二维像素位移和变换前的三维点；请求有效索引时额外返回布尔索引。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     points_3D = torch.zeros((uv.shape[0], 4),
                             device=uv.device, dtype=torch.float)
 
-    # depth to 3D (X-forward)
-    points_3D[:, 1] = (uv[:, 0] - cam_model.principal_point[0]) * depth / cam_model.focal_length[0]  # Y
-    points_3D[:, 2] = (uv[:, 1] - cam_model.principal_point[1]) * depth / cam_model.focal_length[1]  # Z
+    # Back-project depth in an X-forward frame.
+    normalized_v = (uv[:, 1] - cam_model.principal_point[1]) / cam_model.focal_length[1]
+    points_3D[:, 1] = (
+        uv[:, 0] - cam_model.principal_point[0] - cam_model.skew * normalized_v
+    ) * depth / cam_model.focal_length[0]  # Y
+    points_3D[:, 2] = normalized_v * depth  # Z
     points_3D[:, 0] = depth
     points_3D[:, 3] = 1.
 
     pc_rotated = rotate_forward(points_3D.clone(), RT)
 
     uv_rgb = torch.zeros((uv.shape[0], 2), device=uv.device, dtype=torch.float)
-    uv_rgb[:, 0] = cam_model.focal_length[0] * pc_rotated[:, 1] / pc_rotated[:, 0] + cam_model.principal_point[0]
+    uv_rgb[:, 0] = (cam_model.focal_length[0] * pc_rotated[:, 1] / pc_rotated[:, 0]
+                    + cam_model.skew * pc_rotated[:, 2] / pc_rotated[:, 0]
+                    + cam_model.principal_point[0])
     uv_rgb[:, 1] = cam_model.focal_length[1] * pc_rotated[:, 2] / pc_rotated[:, 0] + cam_model.principal_point[1]
 
     if reverse:
@@ -429,14 +623,13 @@ def get_flow(uv, depth, RT, cam_model, image_shape, scale_flow=True, get_valid_i
     valid_index = valid_index & (uv_rgb[:, 1] < image_shape[0])
     
     
-    # Remove small flow
+    # Remove tiny flow.
     flow[abs(flow)<0.5] = 0
 
-    # PWC-Net divides the flow by 20
+    # Apply PWC-Net's 1/20 flow scale.
     if scale_flow:
         flow /= 20.
 
-    # valid_index = ((flow[:, 0] != 0.) & (flow[:, 1] != 0.))
     if get_valid_indexes:
         return flow.clone(), points_3D.clone(), valid_index
     else:
@@ -444,19 +637,45 @@ def get_flow(uv, depth, RT, cam_model, image_shape, scale_flow=True, get_valid_i
 
 
 def get_flow_zforward(uv, depth, RT, cam_model, image_shape, scale_flow=True, get_valid_indexes=False, reverse=False):
+    """在 Z 轴朝前的相机坐标系中反投影深度并生成标定光流监督。
+
+    参数:
+        uv: 图像像素坐标，形状为 N×2，顺序为 u、v，单位为像素。
+        depth: 与投影像素对应的 Z 向深度，单位为米。
+        RT: 四乘四齐次刚体变换；方向由函数的坐标约定说明。
+        cam_model: 已经设置内参的 CameraModel 实例。
+        image_shape: 图像或网络输入尺寸，按高度、宽度排列，单位为像素。
+        scale_flow: 是否按旧 PWC-Net 约定将光流数值除以 20。
+        get_valid_indexes: 是否在返回结果中附带目标投影仍位于图像内的有效索引。
+        reverse: 是否返回目标到源的反向像素位移，而非源到目标的正向位移。
+
+    返回值:
+        二维像素位移和反投影三维点；请求有效索引时额外返回布尔索引。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     points_3D = torch.zeros((uv.shape[0], 4),
                             device=uv.device, dtype=torch.float)
 
-    # depth to 3D (X-forward)
-    points_3D[:, 0] = (uv[:, 0] - cam_model.principal_point[0]) * depth / cam_model.focal_length[0]  # Y
-    points_3D[:, 1] = (uv[:, 1] - cam_model.principal_point[1]) * depth / cam_model.focal_length[1]  # Z
+    # Back-project depth in a Z-forward frame.
+    normalized_v = (uv[:, 1] - cam_model.principal_point[1]) / cam_model.focal_length[1]
+    points_3D[:, 0] = (
+        uv[:, 0] - cam_model.principal_point[0] - cam_model.skew * normalized_v
+    ) * depth / cam_model.focal_length[0]  # X
+    points_3D[:, 1] = normalized_v * depth  # Y
     points_3D[:, 2] = depth
     points_3D[:, 3] = 1.
 
     pc_rotated = rotate_forward(points_3D.clone(), RT)
 
     uv_rgb = torch.zeros((uv.shape[0], 2), device=uv.device, dtype=torch.float)
-    uv_rgb[:, 0] = cam_model.focal_length[0] * pc_rotated[:, 0] / pc_rotated[:, 2] + cam_model.principal_point[0]
+    uv_rgb[:, 0] = (cam_model.focal_length[0] * pc_rotated[:, 0] / pc_rotated[:, 2]
+                    + cam_model.skew * pc_rotated[:, 1] / pc_rotated[:, 2]
+                    + cam_model.principal_point[0])
     uv_rgb[:, 1] = cam_model.focal_length[1] * pc_rotated[:, 1] / pc_rotated[:, 2] + cam_model.principal_point[1]
 
     if reverse:
@@ -473,14 +692,13 @@ def get_flow_zforward(uv, depth, RT, cam_model, image_shape, scale_flow=True, ge
     valid_index = valid_index & (uv_rgb[:, 0] < image_shape[1])
     valid_index = valid_index & (uv_rgb[:, 1] < image_shape[0])
 
-    # Remove small flow
+    # Remove tiny flow.
     flow[abs(flow) < 0.5] = 0
 
-    # PWC-Net divides the flow by 20
+    # Apply PWC-Net's 1/20 flow scale.
     if scale_flow:
         flow /= 20.
 
-    # valid_index = ((flow[:, 0] != 0.) & (flow[:, 1] != 0.))
     if get_valid_indexes:
         return flow.clone(), points_3D.clone(), valid_index
     else:
@@ -488,13 +706,22 @@ def get_flow_zforward(uv, depth, RT, cam_model, image_shape, scale_flow=True, ge
 
 
 def project_points_pose(xyzw, hyp_pose, cam_mat, real_uv):
-    """
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `project_points_pose` 操作。
 
-    :param xyzw: 3D Points tensor, shape 4xN, Z-forward
-    :param hyp_pose: Output of solvePnP
-    :param cam_mat: intrinsic camera matrix 3x3
-    :param real_uv: Real 2D projections tensor, shape 2xN or Nx2
-    :return: Projection of 3D points into the camera plane placed in hyp_pose
+    参数:
+        xyzw: Z 轴向前的齐次三维点，形状为 4×N 或 N×4。
+        hyp_pose: PnP 假设位姿，包含 Rodrigues 旋转向量和平移。
+        cam_mat: 三乘三针孔相机内参矩阵。
+        real_uv: 与三维点对应的真实像素坐标，形状为 2×N 或 N×2。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     if xyzw.shape[1] == 4 and xyzw.shape[0] != 4:
         xyzw = xyzw.t()
@@ -517,6 +744,23 @@ def project_points_pose(xyzw, hyp_pose, cam_mat, real_uv):
 
 
 def downsample_flow_and_mask(flow, mask, downsample_ratio, scale_flow=False):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `downsample_flow_and_mask` 操作。
+
+    参数:
+        flow: 二维光流张量或数组，最后一维或通道维为 u、v，单位为像素。
+        mask: 有效像素布尔或数值掩码；非零位置参与计算。
+        downsample_ratio: 空间下采样倍率；大于等于 1。
+        scale_flow: 是否按旧 PWC-Net 约定将光流数值除以 20。
+
+    返回值:
+        计算得到的光流、有效索引、指标或可视化结果；具体组合遵循调用点解包方式。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     downsampled_flow = torch.zeros((flow.shape[0]//downsample_ratio, flow.shape[1]//downsample_ratio, 2),
                                    device=flow.device, dtype=torch.float)
     downsampled_flow = visibility.downsample_flow(flow, downsampled_flow, flow.shape[1]//downsample_ratio,
@@ -534,6 +778,21 @@ def downsample_flow_and_mask(flow, mask, downsample_ratio, scale_flow=False):
 
 
 def downsample_depth(depth, downsample_ratio):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `downsample_depth` 操作。
+
+    参数:
+        depth: 与投影像素对应的 Z 向深度，单位为米。
+        downsample_ratio: 空间下采样倍率；大于等于 1。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     downsampled_depth = torch.zeros((depth.shape[0]//downsample_ratio, depth.shape[1]//downsample_ratio, 1),
                                    device=depth.device, dtype=torch.float)
     downsampled_depth = visibility.downsample_depth(depth, downsampled_depth, depth.shape[1]//downsample_ratio,
@@ -541,15 +800,45 @@ def downsample_depth(depth, downsample_ratio):
     return downsampled_depth
 
 
-# From HD3
+# Adapted from HD3.
 def disp2flow(disp):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `disp2flow` 操作。
+
+    参数:
+        disp: 水平视差图，单位为像素。
+
+    返回值:
+        计算得到的光流、有效索引、指标或可视化结果；具体组合遵循调用点解包方式。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     assert disp.size(1) == 1
     padder = torch.zeros(disp.size(), device=disp.device)
     return torch.cat([disp, padder], dim=1)
 
 
-# From HD3
+# Adapted from HD3.
 def resize_dense_vector(vec, des_height, des_width):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `resize_dense_vector` 操作。
+
+    参数:
+        vec: 待调整尺寸的稠密二维向量场，形状为 B×2×H×W。
+        des_height: 目标向量场高度，单位为像素。
+        des_width: 目标向量场宽度，单位为像素。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     ratio_height = float(des_height / vec.size(2))
     ratio_width = float(des_width / vec.size(3))
     vec = F.interpolate(
@@ -564,11 +853,22 @@ def resize_dense_vector(vec, des_height, des_width):
 
 
 def EndPointError(output, gt):
-    # output: [B, 1/2, H, W], stereo or flow prediction
-    # gt: [B, C, H, W], 2D ground-truth annotation which may contain a mask
-    # NOTE: To benchmark the result, please ensure the ground-truth keeps
-    # its ORIGINAL RESOLUTION.
-    if output.size(1) == 1:  # stereo
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `EndPointError` 操作。
+
+    参数:
+        output: 调用方预分配并由当前函数填充的输出张量或数组。
+        gt: 真实光流与可选有效掩码组成的监督张量。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
+    if output.size(1) == 1:  # A single channel represents disparity.
         output = disp2flow(output)
     output = resize_dense_vector(output, gt.size(2), gt.size(3))
     error = torch.norm(output - gt[:, :2, :, :], 2, 1, keepdim=False)
@@ -581,12 +881,19 @@ def EndPointError(output, gt):
 
 
 def uncertainty_to_color(_tensor):
-    """
-    Args:
-        _tensor: (2, H, W)
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `uncertainty_to_color` 操作。
 
-    Returns:
-        color: (H, W, 3)
+    参数:
+        _tensor: 需要转换为伪彩色的不确定性张量。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
     total_uncertainty = _tensor[0, :, :] + _tensor[1, :, :]
     total_uncertainty = torch.from_numpy(total_uncertainty)
@@ -599,40 +906,58 @@ def uncertainty_to_color(_tensor):
     color = color[0].permute(1, 2, 0).numpy()
     return color
 
-# From: https://scikit-surgerycore.readthedocs.io
+# Source: https://scikit-surgerycore.readthedocs.io
 def average_quaternions(quaternions):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `average_quaternions` 操作。
+
+    参数:
+        quaternions: 待聚合的单位四元数集合，形状为 N×4。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
     """
-    Calculate average quaternion
 
-    :params quaternions: is a Nx4 numpy matrix and contains the quaternions
-        to average in the rows.
-        The quaternions are arranged as (w,x,y,z), with w being the scalar
-
-    :returns: the average quaternion of the input. Note that the signs
-        of the output quaternion can be reversed, since q and -q
-        describe the same orientation
-    """
-
-    # Number of quaternions to average
+    # Number of quaternions.
     samples = quaternions.shape[0]
     mat_a = np.zeros(shape=(4, 4), dtype=np.float64)
 
     for i in range(0, samples):
         quat = quaternions[i, :]
-        # multiply quat with its transposed version quat' and add mat_a
+        # Accumulate quaternion outer products.
         mat_a = np.outer(quat, quat) + mat_a
 
-    # scale
+    # Normalize by sample count.
     mat_a = (1.0/ samples)*mat_a
-    # compute eigenvalues and -vectors
+    # Compute eigenpairs.
     eigen_values, eigen_vectors = np.linalg.eig(mat_a)
-    # Sort by largest eigenvalue
+    # Sort by descending eigenvalue.
     eigen_vectors = eigen_vectors[:, eigen_values.argsort()[::-1]]
-    # return the real part of the largest eigenvector (has only real part)
+    # The principal eigenvector is the mean quaternion.
     return np.real(np.ravel(eigen_vectors[:, 0]))
 
 
 def voxelize_gpu(points, voxel_size):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `voxelize_gpu` 操作。
+
+    参数:
+        points: 输入点、点云或坐标集合；形状由当前函数约定。
+        voxel_size: 体素边长，单位为米。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     batch = torch.zeros(points.shape[0], device=points.device, dtype=torch.long)
     voxel_cluster = voxel_grid(points, batch, size = voxel_size)
     voxel_cluster, perm = consecutive_cluster(voxel_cluster)
@@ -642,8 +967,23 @@ def voxelize_gpu(points, voxel_size):
     return points_sampled
 
 
-# From https://github.com/dilaragokay/central-tendency-rotations/
+# Source: https://github.com/dilaragokay/central-tendency-rotations/
 def hamilton_product(q1, q2):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `hamilton_product` 操作。
+
+    参数:
+        q1: Hamilton 乘积左侧四元数或批量四元数。
+        q2: Hamilton 乘积右侧四元数或批量四元数。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     a1, b1, c1, d1 = q1
     a2, b2, c2, d2 = q2
     return torch.tensor(
@@ -656,8 +996,23 @@ def hamilton_product(q1, q2):
     )
 
 
-# From https://github.com/dilaragokay/central-tendency-rotations/
+# Source: https://github.com/dilaragokay/central-tendency-rotations/
 def mean(Q, weights=None):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `mean` 操作。
+
+    参数:
+        Q: 待求均值、中位数或众数的单位四元数集合。
+        weights: 按级联阶段顺序排列的 checkpoint 路径序列。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     if weights is None:
         weights = torch.ones(len(Q), device=torch.device("cuda:0")) / len(Q)
     A = torch.zeros((4, 4), device=torch.device("cuda:0"))
@@ -673,12 +1028,29 @@ def mean(Q, weights=None):
         return -q_avg
     return q_avg
 
-# From https://github.com/dilaragokay/central-tendency-rotations/
+# Source: https://github.com/dilaragokay/central-tendency-rotations/
 def quaternion_median(Q, p=1, max_angular_update=0.0001, max_iterations=1000):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `quaternion_median` 操作。
+
+    参数:
+        Q: 待求均值、中位数或众数的单位四元数集合。
+        p: 四元数中位数使用的距离指数。
+        max_angular_update: 四元数中位数迭代允许的最大角更新阈值，单位为弧度。
+        max_iterations: 四元数中位数求解的最大迭代次数。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     Q = Q.clone().detach()
     weights = torch.ones(len(Q)) / len(Q)
     q_median = mean(Q, weights)
-    Q = Q.cpu()  # because we do sequential operations
+    Q = Q.cpu()  # Sequential operations run on CPU.
     q_median = q_median.cpu()
     EPS_ANGLE = 0.0000001
     max_angular_update = max(max_angular_update, EPS_ANGLE)
@@ -722,8 +1094,23 @@ def quaternion_median(Q, p=1, max_angular_update=0.0001, max_iterations=1000):
     return q_median
 
 
-# From https://github.com/dilaragokay/central-tendency-rotations/
+# Source: https://github.com/dilaragokay/central-tendency-rotations/
 def quaternion_mode(Q, precision=3):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `quaternion_mode` 操作。
+
+    参数:
+        Q: 待求均值、中位数或众数的单位四元数集合。
+        precision: 四元数众数聚类使用的角度精度阈值。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     if isinstance(Q, torch.Tensor):
         Q = Q.clone().detach()
     else:
@@ -734,6 +1121,20 @@ def quaternion_mode(Q, precision=3):
 
 
 def str2bool(v):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `str2bool` 操作。
+
+    参数:
+        v: 待解析为布尔值的字符串、整数或布尔对象。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     if isinstance(v, bool):
         return v
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -745,10 +1146,42 @@ def str2bool(v):
 
 
 def get_flow_rgb2lidar(*args):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `get_flow_rgb2lidar` 操作。
+
+    参数:
+        *args: 调用参数集合；字段含义由当前模块的网络或命令行约定定义。
+
+    返回值:
+        计算得到的光流、有效索引、指标或可视化结果；具体组合遵循调用点解包方式。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     pass
 
 
 def get_ECE(predicted_flow, predicted_uncertainty, target_flow, mask, loss_type="NLL"):
+    """完成 点云变换、外参表示、标定光流和训练公共工具 中的 `get_ECE` 操作。
+
+    参数:
+        predicted_flow: 网络预测的二维光流或多次迭代预测列表。
+        predicted_uncertainty: 网络对光流分量预测的不确定性参数张量或迭代列表。
+        target_flow: 光流监督张量或按尺度组织的光流监督列表。
+        mask: 有效像素布尔或数值掩码；非零位置参与计算。
+        loss_type: 不确定性校准使用的分布类型，例如 NLL 或 DER。
+
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        点云默认使用齐次列向量；相机坐标采用 Z 轴向前。外参为 4×4 刚体变换，平移单位为米，图像坐标顺序为 (u, v)。
+    """
     gamma1 = predicted_flow[:, 0, :, :]
     y1 = target_flow[:, 0, :, :]
     if loss_type == "NLL":

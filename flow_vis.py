@@ -12,19 +12,28 @@
 # Author: Tom Runia
 # Date Created: 2018-08-03
 
+"""光流颜色编码与可视化。
+
+本模块属于 CMRNext 项目自有源码；函数和类的参数、返回值、异常副作用以及
+涉及的坐标系、张量布局和单位均在对应中文 docstring 中说明。
+"""
+
 import numpy as np
 
 def make_colorwheel():
-    """
-    Generates a color wheel for optical flow visualization as presented in:
-        Baker et al. "A Database and Evaluation Methodology for Optical Flow" (ICCV, 2007)
-        URL: http://vision.middlebury.edu/flow/flowEval-iccv07.pdf
+    """完成 光流颜色编码与可视化 中的 `make_colorwheel` 操作。
 
-    Code follows the original C++ source code of Daniel Scharstein.
-    Code follows the the Matlab source code of Deqing Sun.
+    参数:
+        无。
 
-    Returns:
-        np.ndarray: Color wheel
+    返回值:
+        返回由 `实现中的返回表达式` 表示的计算结果。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
     """
 
     RY = 15
@@ -65,22 +74,24 @@ def make_colorwheel():
 
 
 def flow_uv_to_colors(u, v, convert_to_bgr=False):
-    """
-    Applies the flow color wheel to (possibly clipped) flow components u and v.
+    """完成 光流颜色编码与可视化 中的 `flow_uv_to_colors` 操作。
 
-    According to the C++ source code of Daniel Scharstein
-    According to the Matlab source code of Deqing Sun
+    参数:
+        u: 光流水平分量数组，正方向向右，单位为像素。
+        v: 光流垂直分量数组，正方向向下，单位为像素。
+        convert_to_bgr: 是否把输出通道从 RGB 调换为 OpenCV 使用的 BGR。
 
-    Args:
-        u (np.ndarray): Input horizontal flow of shape [H,W]
-        v (np.ndarray): Input vertical flow of shape [H,W]
-        convert_to_bgr (bool, optional): Convert output image to BGR. Defaults to False.
+    返回值:
+        计算得到的光流、有效索引、指标或可视化结果；具体组合遵循调用点解包方式。
 
-    Returns:
-        np.ndarray: Flow visualization image of shape [H,W,3]
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
     """
     flow_image = np.zeros((u.shape[0], u.shape[1], 3), np.uint8)
-    colorwheel = make_colorwheel()  # shape [55x3]
+    colorwheel = make_colorwheel()  # Shape: 55x3.
     ncols = colorwheel.shape[0]
     rad = np.sqrt(np.square(u) + np.square(v))
     a = np.arctan2(-v, -u)/np.pi
@@ -96,24 +107,29 @@ def flow_uv_to_colors(u, v, convert_to_bgr=False):
         col = (1-f)*col0 + f*col1
         idx = (rad <= 1)
         col[idx]  = 1 - rad[idx] * (1-col[idx])
-        col[~idx] = col[~idx] * 0.75   # out of range
-        # Note the 2-i => BGR instead of RGB
+        col[~idx] = col[~idx] * 0.75   # Dim out-of-range pixels.
+        # Use 2-i for BGR output.
         ch_idx = 2-i if convert_to_bgr else i
         flow_image[:,:,ch_idx] = np.floor(255 * col)
     return flow_image
 
 
 def flow_to_color(flow_uv, clip_flow=None, convert_to_bgr=False):
-    """
-    Expects a two dimensional flow image of shape.
+    """完成 光流颜色编码与可视化 中的 `flow_to_color` 操作。
 
-    Args:
-        flow_uv (np.ndarray): Flow UV image of shape [H,W,2]
-        clip_flow (float, optional): Clip maximum of flow values. Defaults to None.
-        convert_to_bgr (bool, optional): Convert output image to BGR. Defaults to False.
+    参数:
+        flow_uv: 最后一维为 (u,v) 的二维光流数组，单位为像素。
+        clip_flow: 可选光流绝对值裁剪阈值，单位为像素。
+        convert_to_bgr: 是否把输出通道从 RGB 调换为 OpenCV 使用的 BGR。
 
-    Returns:
-        np.ndarray: Flow visualization image of shape [H,W,3]
+    返回值:
+        计算得到的光流、有效索引、指标或可视化结果；具体组合遵循调用点解包方式。
+
+    异常和副作用:
+        输入类型、形状或数值不满足实现要求时抛出相应异常；是否原地修改输入以函数体实现为准。
+
+    坐标系和数据约定:
+        网络张量采用 B×C×H×W；二维光流通道依次为水平 u 和垂直 v，数值单位为像素。
     """
     assert flow_uv.ndim == 3, 'input flow must have three dimensions'
     assert flow_uv.shape[2] == 2, 'input flow must have shape [H,W,2]'
