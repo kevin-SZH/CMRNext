@@ -12,6 +12,9 @@
 # Author: Tom Runia
 # Date Created: 2018-08-03
 
+"""Color visualization for dense flow fields.
+"""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -20,13 +23,8 @@ import numpy as np
 
 
 def make_colorwheel():
-    '''
-    Generates a color wheel for optical flow visualization as presented in:
-        Baker et al. "A Database and Evaluation Methodology for Optical Flow" (ICCV, 2007)
-        URL: http://vision.middlebury.edu/flow/flowEval-iccv07.pdf
-    According to the C++ source code of Daniel Scharstein
-    According to the Matlab source code of Deqing Sun
-    '''
+    """Make colorwheel.
+    """
 
     RY = 15
     YG = 6
@@ -66,19 +64,21 @@ def make_colorwheel():
 
 
 def flow_compute_color(u, v, convert_to_bgr=False):
-    '''
-    Applies the flow color wheel to (possibly clipped) flow components u and v.
-    According to the C++ source code of Daniel Scharstein
-    According to the Matlab source code of Deqing Sun
-    :param u: np.ndarray, input horizontal flow
-    :param v: np.ndarray, input vertical flow
-    :param convert_to_bgr: bool, whether to change ordering and output BGR instead of RGB
-    :return:
-    '''
+    """Flow compute color.
+
+    Args:
+        u: U.
+        v: V.
+        convert_to_bgr: Convert to bgr.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
 
     flow_image = np.zeros((u.shape[0], u.shape[1], 3), np.uint8)
 
-    colorwheel = make_colorwheel()  # shape [55x3]
+    colorwheel = make_colorwheel()  # Shape: 55x3.
     ncols = colorwheel.shape[0]
 
     rad = np.sqrt(np.square(u) + np.square(v))
@@ -99,9 +99,9 @@ def flow_compute_color(u, v, convert_to_bgr=False):
 
         idx = (rad <= 1)
         col[idx]  = 1 - rad[idx] * (1-col[idx])
-        col[~idx] = col[~idx] * 0.75   # out of range?
+        col[~idx] = col[~idx] * 0.75   # Dim out-of-range pixels.
 
-        # Note the 2-i => BGR instead of RGB
+        # Use 2-i for BGR output.
         ch_idx = 2-i if convert_to_bgr else i
         flow_image[:,:,ch_idx] = np.floor(255 * col)
 
@@ -109,14 +109,17 @@ def flow_compute_color(u, v, convert_to_bgr=False):
 
 
 def flow_to_color(flow_uv, clip_flow=None, convert_to_bgr=False):
-    '''
-    Expects a two dimensional flow image of shape [H,W,2]
-    According to the C++ source code of Daniel Scharstein
-    According to the Matlab source code of Deqing Sun
-    :param flow_uv: np.ndarray of shape [H,W,2]
-    :param clip_flow: float, maximum clipping value for flow
-    :return:
-    '''
+    """Flow to color.
+
+    Args:
+        flow_uv: Flow uv.
+        clip_flow: Clip flow.
+        convert_to_bgr: Convert to bgr.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
 
     assert flow_uv.ndim == 3, 'input flow must have three dimensions'
     assert flow_uv.shape[2] == 2, 'input flow must have shape [H,W,2]'
@@ -143,9 +146,7 @@ SMALLFLOW = 0.0
 LARGEFLOW = 1e8
 
 def make_color_wheel():
-    """
-    Generate color wheel according Middlebury color code
-    :return: Color wheel
+    """Make color wheel.
     """
     RY = 15
     YG = 6
@@ -194,11 +195,11 @@ def make_color_wheel():
 
 
 def compute_color(u, v):
-    """
-    compute optical flow color map
-    :param u: optical flow horizontal map
-    :param v: optical flow vertical map
-    :return: optical flow in color code
+    """Compute color.
+
+    Args:
+        u: U.
+        v: V.
     """
     [h, w] = u.shape
     img = np.zeros([h, w, 3])
@@ -236,12 +237,16 @@ def compute_color(u, v):
 
     return img
 
-# from https://github.com/gengshan-y/VCN
+# Source: https://github.com/gengshan-y/VCN
 def flow_to_image(flow):
-    """
-    Convert flow into middlebury color code image
-    :param flow: optical flow map
-    :return: optical flow image in middlebury color
+    """Flow to image.
+
+    Args:
+        flow: Flow.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
     """
     u = flow[:, :, 0]
     v = flow[:, :, 1]

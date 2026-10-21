@@ -1,10 +1,28 @@
+"""Convolutional feature and context encoders.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class ResidualBlock(nn.Module):
+    """Residual Block.
+
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     def __init__(self, in_planes, planes, norm_fn='group', stride=1):
+        """Initialize ResidualBlock from the supplied settings.
+
+        Args:
+            in_planes: In planes.
+            planes: Planes.
+            norm_fn: Norm fn.
+            stride: Stride.
+        """
         super(ResidualBlock, self).__init__()
   
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, stride=stride)
@@ -46,6 +64,11 @@ class ResidualBlock(nn.Module):
 
 
     def forward(self, x):
+        """Compute the forward pass of ResidualBlock.
+
+        Args:
+            x: Input features or tensor values.
+        """
         y = x
         y = self.relu(self.norm1(self.conv1(y)))
         y = self.relu(self.norm2(self.conv2(y)))
@@ -58,7 +81,17 @@ class ResidualBlock(nn.Module):
 
 
 class BottleneckBlock(nn.Module):
+    """Bottleneck Block.
+    """
     def __init__(self, in_planes, planes, norm_fn='group', stride=1):
+        """Initialize BottleneckBlock from the supplied settings.
+
+        Args:
+            in_planes: In planes.
+            planes: Planes.
+            norm_fn: Norm fn.
+            stride: Stride.
+        """
         super(BottleneckBlock, self).__init__()
   
         self.conv1 = nn.Conv2d(in_planes, planes//4, kernel_size=1, padding=0)
@@ -105,6 +138,11 @@ class BottleneckBlock(nn.Module):
 
 
     def forward(self, x):
+        """Compute the forward pass of BottleneckBlock.
+
+        Args:
+            x: Input features or tensor values.
+        """
         y = x
         y = self.relu(self.norm1(self.conv1(y)))
         y = self.relu(self.norm2(self.conv2(y)))
@@ -116,7 +154,17 @@ class BottleneckBlock(nn.Module):
         return self.relu(x+y)
 
 class BasicEncoder(nn.Module):
+    """Basic Encoder.
+    """
     def __init__(self, output_dim=128, norm_fn='batch', dropout=0.0, in_feat=3):
+        """Initialize BasicEncoder from the supplied settings.
+
+        Args:
+            output_dim: Output dim.
+            norm_fn: Norm fn.
+            dropout: Dropout.
+            in_feat: In feat.
+        """
         super(BasicEncoder, self).__init__()
         self.norm_fn = norm_fn
 
@@ -140,7 +188,7 @@ class BasicEncoder(nn.Module):
         self.layer2 = self._make_layer(96, stride=2)
         self.layer3 = self._make_layer(128, stride=2)
 
-        # output convolution
+        # Output convolution.
         self.conv2 = nn.Conv2d(128, output_dim, kernel_size=1)
 
         if dropout > 0:
@@ -158,6 +206,12 @@ class BasicEncoder(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
     def _make_layer(self, dim, stride=1):
+        """Make layer.
+
+        Args:
+            dim: Dim.
+            stride: Stride.
+        """
         layer1 = ResidualBlock(self.in_planes, dim, self.norm_fn, stride=stride)
         layer2 = ResidualBlock(dim, dim, self.norm_fn, stride=1)
         layers = (layer1, layer2)
@@ -168,7 +222,12 @@ class BasicEncoder(nn.Module):
 
     def forward(self, x):
 
-        # if input is list, combine batch dimension
+        # Merge batch dimensions for list input.
+        """Compute the forward pass of BasicEncoder.
+
+        Args:
+            x: Input features or tensor values.
+        """
         is_list = isinstance(x, tuple) or isinstance(x, list)
         if is_list:
             batch_dim = x[0].shape[0]
@@ -194,7 +253,17 @@ class BasicEncoder(nn.Module):
 
 
 class SmallEncoder(nn.Module):
+    """Small Encoder.
+    """
     def __init__(self, output_dim=128, norm_fn='batch', dropout=0.0, in_feat=3):
+        """Initialize SmallEncoder from the supplied settings.
+
+        Args:
+            output_dim: Output dim.
+            norm_fn: Norm fn.
+            dropout: Dropout.
+            in_feat: In feat.
+        """
         super(SmallEncoder, self).__init__()
         self.norm_fn = norm_fn
 
@@ -235,6 +304,12 @@ class SmallEncoder(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
     def _make_layer(self, dim, stride=1):
+        """Make layer.
+
+        Args:
+            dim: Dim.
+            stride: Stride.
+        """
         layer1 = BottleneckBlock(self.in_planes, dim, self.norm_fn, stride=stride)
         layer2 = BottleneckBlock(dim, dim, self.norm_fn, stride=1)
         layers = (layer1, layer2)
@@ -245,7 +320,12 @@ class SmallEncoder(nn.Module):
 
     def forward(self, x):
 
-        # if input is list, combine batch dimension
+        # Merge batch dimensions for list input.
+        """Compute the forward pass of SmallEncoder.
+
+        Args:
+            x: Input features or tensor values.
+        """
         is_list = isinstance(x, tuple) or isinstance(x, list)
         if is_list:
             batch_dim = x[0].shape[0]

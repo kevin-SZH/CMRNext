@@ -1,0 +1,83 @@
+# RS32 fixed-extrinsic training with online perturbations.
+schema_version: cmrnext_scene_calibration_v1
+
+# Adjust dataset.root for the local mount.
+# Scenes share the multi-extrinsic T0 and intrinsics, with identity residuals.
+# Relative scenes use dataset.root; use --val_every 0 without validation scenes.
+dataset:
+  root: /path/to/dataset_root
+  source_mode: calibnet_fixed_t0_v1
+  training_semantics: nominal_to_true_residual_v1
+  target_network: calibnet
+  dummy_intensity: 0.0
+  scenes:
+    train:
+      - train/scene_001
+    validation:
+      - validation/scene_001
+    test:
+      - test/scene_001
+  # Scene matrices use the camera_from_lidar column-vector convention.
+  # Training samples residual and sets T_input = inverse(residual) @ Ti.
+  files:
+    calibration: calib.txt
+    nominal_extrinsic: nominal_extrinsic.txt
+    true_extrinsics: poses.txt
+    residuals: residuals.txt
+  sensor:
+    profile: robosense_rs32_nonuniform_repeated_ring
+    # Intrinsics match the multi-extrinsic data and scale with resizing.
+    camera:
+      width: 2048
+      height: 1536
+      fx: 1207.6590132
+      fy: 1205.79905352
+      cx: 1007.86825845
+      cy: 764.89346874
+      skew: 0.0
+    lidar:
+      # Record the extrema of the official nonuniform RS32 beam angles.
+      rings: 32
+      points_per_ring: 1801
+      vertical_fov_deg: [-25.0, 15.0167]
+      acquisition:
+        repeated_pattern: true
+        scan_frequency_hz: 10.0
+        beams_per_scan: 57632
+        # Each point cloud contains one 0.1 s scan with 32*1801 beams.
+        beam_rate_hz: 576320.0
+        accumulation_duration_s: 0.1
+  validation:
+    transform_atol: 1.0e-5
+    require_sequence_audit: false
+    require_continuous_coverage: false
+
+preprocessing:
+  # Train with --img_shape 576 768; evaluation keeps the full resized view.
+  resize_hw: [768, 1024]
+  evaluation_crop:
+    top: 0
+    left: 0
+    height: 768
+    width: 1024
+
+augmentation:
+  color_jitter: false
+  geometric: false
+  crop_top: [0, 192]
+  crop_left: [0, 256]
+
+fixed_t0_online_perturbation:
+  enabled: true
+  sampler: cmrnext_legacy_per_axis_box_v1
+  max_translation_component_m: 0.2
+  max_rotation_euler_component_deg: 10.0
+  train_resample_each_access: true
+
+evaluation:
+  success_translation_m: 0.10
+  success_rotation_deg: 1.0
+  residual_magnitude_bins: [0.0, 0.1, 0.2, 0.35]
+
+curriculum:
+  iter1: fixed_baseline

@@ -1,3 +1,6 @@
+"""Image and optical flow file readers and writers.
+"""
+
 import numpy as np
 from PIL import Image
 from os.path import *
@@ -7,12 +10,19 @@ import cv2
 TAG_CHAR = np.array([202021.25], np.float32)
 
 def readFlow(fn):
-    """ Read .flo file in Middlebury format"""
-    # Code adapted from:
+    """Read Flow.
+
+    Args:
+        fn: Fn.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
+    # Adapted from:
     # http://stackoverflow.com/questions/28013200/reading-middlebury-flow-files-with-python-bytes-array-numpy
 
-    # WARNING: this will work on little-endian architectures (eg Intel x86) only!
-    # print 'fn = %s'%(fn)
+    # Supports little-endian architectures only.
     with open(fn, 'rb') as f:
         magic = np.fromfile(f, np.float32, count=1)
         if 202021.25 != magic:
@@ -21,13 +31,16 @@ def readFlow(fn):
         else:
             w = np.fromfile(f, np.int32, count=1)
             h = np.fromfile(f, np.int32, count=1)
-            # print 'Reading %d x %d flo file\n' % (w, h)
             data = np.fromfile(f, np.float32, count=2*int(w)*int(h))
-            # Reshape data into 3D array (columns, rows, bands)
-            # The reshape here is for visualization, the original code is (w,h,2)
+            # Reshape to (h, w, 2) for visualization.
             return np.resize(data, (int(h), int(w), 2))
 
 def readPFM(file):
+    """Read PFM.
+
+    Args:
+        file: File.
+    """
     file = open(file, 'rb')
 
     color = None
@@ -51,11 +64,11 @@ def readPFM(file):
         raise Exception('Malformed PFM header.')
 
     scale = float(file.readline().rstrip())
-    if scale < 0: # little-endian
+    if scale < 0: # Little-endian.
         endian = '<'
         scale = -scale
     else:
-        endian = '>' # big-endian
+        endian = '>' # Big-endian.
 
     data = np.fromfile(file, endian + 'f')
     shape = (height, width, 3) if color else (height, width)
@@ -65,11 +78,16 @@ def readPFM(file):
     return data
 
 def writeFlow(filename,uv,v=None):
-    """ Write optical flow to file.
-    
-    If v is None, uv is assumed to contain both u and v channels,
-    stacked in depth.
-    Original code by Deqing Sun, adapted from Daniel Scharstein.
+    """Write Flow.
+
+    Args:
+        filename: Filename.
+        uv: Uv.
+        v: V.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
     """
     nBands = 2
 
@@ -84,11 +102,11 @@ def writeFlow(filename,uv,v=None):
     assert(u.shape == v.shape)
     height,width = u.shape
     f = open(filename,'wb')
-    # write the header
+    # Write the header.
     f.write(TAG_CHAR)
     np.array(width).astype(np.int32).tofile(f)
     np.array(height).astype(np.int32).tofile(f)
-    # arrange into matrix form
+    # Arrange as a matrix.
     tmp = np.zeros((height, width*nBands))
     tmp[:,np.arange(width)*2] = u
     tmp[:,np.arange(width)*2 + 1] = v
@@ -97,6 +115,15 @@ def writeFlow(filename,uv,v=None):
 
 
 def readFlowKITTI(filename):
+    """Read Flow KITTI.
+
+    Args:
+        filename: Filename.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     flow = cv2.imread(filename, cv2.IMREAD_ANYDEPTH|cv2.IMREAD_COLOR)
     flow = flow[:,:,::-1].astype(np.float32)
     flow, valid = flow[:, :, :2], flow[:, :, 2]
@@ -104,6 +131,16 @@ def readFlowKITTI(filename):
     return flow, valid
 
 def writeFlowKITTI(filename, uv):
+    """Write Flow KITTI.
+
+    Args:
+        filename: Filename.
+        uv: Uv.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     uv = 64.0 * uv + 2**15
     valid = np.ones([uv.shape[0], uv.shape[1], 1])
     uv = np.concatenate([uv, valid], axis=-1).astype(np.uint16)
@@ -111,6 +148,12 @@ def writeFlowKITTI(filename, uv):
     
 
 def read_gen(file_name, pil=False):
+    """Read gen.
+
+    Args:
+        file_name: File name.
+        pil: Pil.
+    """
     ext = splitext(file_name)[-1]
     if ext == '.png' or ext == '.jpeg' or ext == '.ppm' or ext == '.jpg':
         return Image.open(file_name)

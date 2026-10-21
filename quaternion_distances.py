@@ -1,3 +1,6 @@
+"""Quaternion algebra, rotation conversion, and rotation distance metrics.
+"""
+
 import math
 
 import numpy as np
@@ -5,15 +8,12 @@ import torch
 
 
 def quatmultiply(q, r, device='cpu'):
-    """
-    Batch quaternion multiplication
-    Args:
-        q (torch.Tensor/np.ndarray): shape=[Nx4]
-        r (torch.Tensor/np.ndarray): shape=[Nx4]
-        device (str): 'cuda' or 'cpu'
+    """Quatmultiply.
 
-    Returns:
-        torch.Tensor: shape=[Nx4]
+    Args:
+        q: Quaternion input in the convention used by this module.
+        r: Second quaternion input in the same convention as q.
+        device: PyTorch device used for tensor operations.
     """
     if isinstance(q, torch.Tensor):
         t = torch.zeros(q.shape[0], 4, device=device)
@@ -29,13 +29,10 @@ def quatmultiply(q, r, device='cpu'):
 
 
 def quatinv(q):
-    """
-    Batch quaternion inversion
-    Args:
-        q (torch.Tensor/np.ndarray): shape=[Nx4]
+    """Quatinv.
 
-    Returns:
-        torch.Tensor/np.ndarray: shape=[Nx4]
+    Args:
+        q: Quaternion input in the convention used by this module.
     """
     if isinstance(q, torch.Tensor):
         t = q.clone()
@@ -49,26 +46,24 @@ def quatinv(q):
 
 
 def quaternion_loss(q, r, device):
-    """
-    Batch quaternion distances, used as loss
-    Args:
-        q (torch.Tensor): shape=[Nx4]
-        r (torch.Tensor): shape=[Nx4]
-        device (str): 'cuda' or 'cpu'
+    """Quaternion loss.
 
-    Returns:
-        torch.Tensor: shape=[N]
+    Args:
+        q: Quaternion input in the convention used by this module.
+        r: Second quaternion input in the same convention as q.
+        device: PyTorch device used for tensor operations.
     """
     t = quatmultiply(q, quatinv(r), device)
     return 2 * torch.atan2(torch.norm(t[:, 1:], dim=1), torch.abs(t[:, 0]))
 
 
 def rotation_from_quaternion(x):
-    """
-        Converts a quaternion to a rotation matrix.
+    """Rotation from quaternion.
 
+    Args:
+        x: Input features or tensor values.
     """
-    # Documented in <http://en.wikipedia.org/w/index.php?title=
+    # See <http://en.wikipedia.org/w/index.php?title=
     # Quaternions_and_spatial_rotation&oldid=402924915>
     a, b, c, d = x
 
@@ -86,17 +81,11 @@ def rotation_from_quaternion(x):
 
 
 def axis_angle_from_rotation(R):
-    '''
-        Returns the *(axis,angle)* representation of a given rotation.
+    """Axis angle from rotation.
 
-        There are a couple of symmetries:
-
-        * By convention, the angle returned is nonnegative.
-
-        * If the angle is 0, any axis will do.
-          In that case, :py:func:`default_axis` will be returned.
-
-    '''
+    Args:
+        R: Rotation matrix.
+    """
     angle = np.arccos(np.clip(((R.trace() - 1) / 2), -1.0, 1.0))
 
     if angle == 0:
@@ -110,21 +99,19 @@ def axis_angle_from_rotation(R):
         if computer_with_infinite_precision:
             axis = (1 / (2 * np.sin(angle))) * v
         else:
-            # OK, the formula above gives (theoretically) the correct answer
-            # but it is imprecise if angle is small (dividing by a very small
-            # quantity). This is way better...
+            # Use the stable form for small angles.
             axis = (v * np.sign(angle)) / np.linalg.norm(v)
 
         return axis, angle
 
 
 def geodesic_distance_for_rotations(R1, R2):
-    '''
-        Returns the geodesic distance between two rotation matrices.
+    """Geodesic distance for rotations.
 
-        It is computed as the angle of the rotation :math:`R_1^{*} R_2^{-1}``.
-
-    '''
+    Args:
+        R1: First batch of 3-by-3 rotation matrices.
+        R2: Second batch of 3-by-3 rotation matrices.
+    """
     R = np.dot(R1, R2.T)
-    axis1, angle1 = axis_angle_from_rotation(R)  # @UnusedVariable
+    axis1, angle1 = axis_angle_from_rotation(R)  # Kept for API symmetry.
     return angle1

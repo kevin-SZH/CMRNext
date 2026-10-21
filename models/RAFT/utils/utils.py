@@ -1,3 +1,6 @@
+"""Geometry, projection, sparse flow, batching, and logging utilities.
+"""
+
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -5,7 +8,14 @@ from scipy import interpolate
 
 
 def bilinear_sampler(img, coords, mode='bilinear', mask=False):
-    """ Wrapper for grid_sample, uses pixel coordinates """
+    """Bilinear sampler.
+
+    Args:
+        img: Img.
+        coords: Coords.
+        mode: Mode.
+        mask: Validity mask; nonzero entries participate in the operation.
+    """
     H, W = img.shape[-2:]
     xgrid, ygrid = coords.split([1,1], dim=-1)
     xgrid = 2*xgrid/(W-1) - 1
@@ -21,6 +31,11 @@ def bilinear_sampler(img, coords, mode='bilinear', mask=False):
     return img
 
 def forward_interpolate(flow):
+    """Forward interpolate.
+
+    Args:
+        flow: Flow.
+    """
     flow = flow.detach().cpu().numpy()
     dx, dy = flow[0], flow[1]
 
@@ -52,15 +67,42 @@ def forward_interpolate(flow):
 
 
 def coords_grid(batch, ht, wd):
+    """Coords grid.
+
+    Args:
+        batch: Batch.
+        ht: Ht.
+        wd: Wd.
+    """
     coords = torch.meshgrid(torch.arange(ht), torch.arange(wd), indexing="ij")
     coords = torch.stack(coords[::-1], dim=0).float()
     return coords[None].repeat(batch, 1, 1, 1)
 
 
 def upflow8(flow, mode='bilinear'):
+    """Upflow8.
+
+    Args:
+        flow: Flow.
+        mode: Mode.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     new_size = (8 * flow.shape[2], 8 * flow.shape[3])
     return  8 * F.interpolate(flow, size=new_size, mode=mode, align_corners=True)
 
 def upflow2(flow, mode='bilinear'):
+    """Upflow2.
+
+    Args:
+        flow: Flow.
+        mode: Mode.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     new_size = (2 * flow.shape[2], 2 * flow.shape[3])
     return  2 * F.interpolate(flow, size=new_size, mode=mode, align_corners=True)

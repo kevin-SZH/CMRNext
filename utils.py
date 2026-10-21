@@ -1,3 +1,6 @@
+"""Geometry, projection, sparse flow, batching, and logging utilities.
+"""
+
 import argparse
 from functools import reduce
 
@@ -24,31 +27,25 @@ except ImportError:
 
 
 def init_logger(path, resume=False, save_to_file=False):
-    """
-    Initialize the logger
+    """Init logger.
+
     Args:
-        path: path to the log file
-        resume: if True, the log file is appended to, instead of overwritten
-        save_to_file: if True, the log is saved to a file, otherwise only printed on the console
-    Returns:
-        logger: the logger
+        path: Input or output file path.
+        resume: Resume.
+        save_to_file: Save to file.
     """
-    # loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-    # for l in loggers:
-    #     l.setLevel(logging.ERROR)
     logger = logging.getLogger()
     logger.handlers = []
     logger.setLevel(logging.DEBUG)
 
-    # Set console logging
+    # Configure console logging.
     console_handler = logging.StreamHandler()
     console_formatter = logging.Formatter(fmt="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    # console_formatter = logging.Formatter(fmt="[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s", datefmt="%H:%M:%S")
     console_handler.setFormatter(console_formatter)
     console_handler.setLevel(logging.DEBUG)
     logger.addHandler(console_handler)
 
-    # Setup file logging
+    # Configure file logging when requested.
     if save_to_file:
         mode = 'w'
         if resume:
@@ -65,6 +62,14 @@ def init_logger(path, resume=False, save_to_file=False):
 
 
 def rotate_points(PC, R, T=None, inverse=True):
+    """Rotate points.
+
+    Args:
+        PC: Pc.
+        R: Rotation matrix.
+        T: T.
+        inverse: Inverse.
+    """
     if T is not None:
         R = R.to_matrix()
         R.resize_4x4()
@@ -90,6 +95,14 @@ def rotate_points(PC, R, T=None, inverse=True):
 
 
 def rotate_points_torch(PC, R, T=None, inverse=True):
+    """Rotate points torch.
+
+    Args:
+        PC: Pc.
+        R: Rotation matrix.
+        T: T.
+        inverse: Inverse.
+    """
     if T is not None:
         R = quat2mat(R)
         T = tvector2mat(T)
@@ -110,22 +123,12 @@ def rotate_points_torch(PC, R, T=None, inverse=True):
 
 
 def rotate_forward(PC, R, T=None):
-    """
-    Transform the point cloud PC, so to have the points 'as seen from' the new
-    pose T*R
-    Args:
-        PC (torch.Tensor): Point Cloud to be transformed, shape [4xN] or [Nx4]
-        R (torch.Tensor/mathutils.Euler): can be either:
-            * (mathutils.Euler) euler angles of the rotation part, in this case T cannot be None
-            * (torch.Tensor shape [4]) quaternion representation of the rotation part, in this case T cannot be None
-            * (mathutils.Matrix shape [4x4]) Rotation matrix,
-                in this case it should contains the translation part, and T should be None
-            * (torch.Tensor shape [4x4]) Rotation matrix,
-                in this case it should contains the translation part, and T should be None
-        T (torch.Tensor/mathutils.Vector): Translation of the new pose, shape [3], or None (depending on R)
+    """Apply the forward extrinsic transform to point coordinates.
 
-    Returns:
-        torch.Tensor: Transformed Point Cloud 'as seen from' pose T*R
+    Args:
+        PC: Pc.
+        R: Rotation matrix.
+        T: T.
     """
     if isinstance(R, torch.Tensor):
         return rotate_points_torch(PC, R, T, inverse=True)
@@ -134,8 +137,12 @@ def rotate_forward(PC, R, T=None):
 
 
 def rotate_back(PC_ROTATED, R, T=None):
-    """
-    Inverse of :func:`~utils.rotate_forward`.
+    """Apply the inverse extrinsic transform to point coordinates.
+
+    Args:
+        PC_ROTATED: Pc rotated.
+        R: Rotation matrix.
+        T: T.
     """
     if isinstance(R, torch.Tensor):
         return rotate_points_torch(PC_ROTATED, R, T, inverse=False)
@@ -144,15 +151,15 @@ def rotate_back(PC_ROTATED, R, T=None):
 
 
 def invert_pose(R, T):
-    """
-    Given the 'sampled pose' (aka H_init), we want CMRNet to predict inv(H_init).
-    inv(T*R) will be used as ground truth for the network.
-    Args:
-        R (mathutils.Euler): Rotation of 'sampled pose'
-        T (mathutils.Vector): Translation of 'sampled pose'
+    """Invert pose.
 
-    Returns:
-        (R_GT, T_GT) = (mathutils.Quaternion, mathutils.Vector)
+    Args:
+        R: Rotation matrix.
+        T: T.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
     """
     R = R.to_matrix()
     R.resize_4x4()
@@ -167,6 +174,11 @@ def invert_pose(R, T):
 
 
 def merge_inputs(queries):
+    """Collate frame samples while retaining variable-length point clouds.
+
+    Args:
+        queries: Queries.
+    """
     point_clouds = []
     imgs = []
     reflectances = []
@@ -190,13 +202,10 @@ def merge_inputs(queries):
 
 
 def quaternion_from_matrix(matrix):
-    """
-    Convert a rotation matrix to quaternion.
-    Args:
-        matrix (torch.Tensor): [4x4] transformation matrix or [3,3] rotation matrix.
+    """Convert a rotation matrix to the quaternion convention used by this module.
 
-    Returns:
-        torch.Tensor: shape [4], normalized quaternion
+    Args:
+        matrix: Matrix.
     """
     if matrix.shape == (4, 4):
         R = matrix[:-1, :-1]
@@ -234,6 +243,13 @@ def quaternion_from_matrix(matrix):
 
 
 def euler2mat(z, y, x):
+    """Euler2mat.
+
+    Args:
+        z: Z.
+        y: Y.
+        x: Input features or tensor values.
+    """
     Ms = []
     if z:
         cosz = math.cos(z)
@@ -262,6 +278,13 @@ def euler2mat(z, y, x):
 
 
 def euler2quat(roll, pitch, yaw):
+    """Euler2quat.
+
+    Args:
+        roll: Roll.
+        pitch: Pitch.
+        yaw: Yaw.
+    """
     q = np.zeros(4)
 
     cy = math.cos(yaw * 0.5)
@@ -279,14 +302,11 @@ def euler2quat(roll, pitch, yaw):
 
 
 def quatmultiply(q, r):
-    """
-    Multiply two quaternions
-    Args:
-        q (torch.Tensor/nd.ndarray): shape=[4], first quaternion
-        r (torch.Tensor/nd.ndarray): shape=[4], second quaternion
+    """Quatmultiply.
 
-    Returns:
-        torch.Tensor: shape=[4], normalized quaternion q*r
+    Args:
+        q: Quaternion input in the convention used by this module.
+        r: Second quaternion input in the same convention as q.
     """
     t = torch.zeros(4, device=q.device)
     t[0] = r[0] * q[0] - r[1] * q[1] - r[2] * q[2] - r[3] * q[3]
@@ -297,13 +317,10 @@ def quatmultiply(q, r):
 
 
 def quat2mat(q):
-    """
-    Convert a quaternion to a rotation matrix
-    Args:
-        q (torch.Tensor): shape [4], input quaternion
+    """Quat2mat.
 
-    Returns:
-        torch.Tensor: [4x4] homogeneous rotation matrix
+    Args:
+        q: Quaternion input in the convention used by this module.
     """
     assert q.shape == torch.Size([4]), "Not a valid quaternion"
     if q.norm() != 1.:
@@ -323,14 +340,10 @@ def quat2mat(q):
 
 
 def tvector2mat(t):
-    """
-    Translation vector to homogeneous transformation matrix with identity rotation
+    """Tvector2mat.
+
     Args:
-        t (torch.Tensor): shape=[3], translation vector
-
-    Returns:
-        torch.Tensor: [4x4] homogeneous transformation matrix
-
+        t: T.
     """
     assert t.shape == torch.Size([3]), "Not a valid translation"
     mat = torch.eye(4, device=t.device)
@@ -341,13 +354,10 @@ def tvector2mat(t):
 
 
 def mat2xyzrpy(rotmatrix):
-    """
-    Decompose transformation matrix into components
-    Args:
-        rotmatrix (torch.Tensor/np.ndarray): [4x4] transformation matrix
+    """Mat2xyzrpy.
 
-    Returns:
-        torch.Tensor: shape=[6], contains xyzrpy
+    Args:
+        rotmatrix: Rotmatrix.
     """
     roll = math.atan2(-rotmatrix[1, 2], rotmatrix[2, 2])
     pitch = math.asin ( rotmatrix[0, 2])
@@ -360,6 +370,12 @@ def mat2xyzrpy(rotmatrix):
 
 
 def to_rotation_matrix(R, T):
+    """To rotation matrix.
+
+    Args:
+        R: Rotation matrix.
+        T: T.
+    """
     R = quat2mat(R)
     T = tvector2mat(T)
     RT = torch.mm(T, R)
@@ -367,6 +383,16 @@ def to_rotation_matrix(R, T):
 
 
 def overlay_imgs(rgb, lidar, idx=0, pooling=3, max_depth=160., close_thr=25.):
+    """Overlay imgs.
+
+    Args:
+        rgb: RGB image tensor.
+        lidar: Lidar.
+        idx: Idx.
+        pooling: Pooling.
+        max_depth: Max depth.
+        close_thr: Close thr.
+    """
     std = [0.229, 0.224, 0.225]
     mean = [0.485, 0.456, 0.406]
 
@@ -381,7 +407,6 @@ def overlay_imgs(rgb, lidar, idx=0, pooling=3, max_depth=160., close_thr=25.):
         close_points[close_points>=close_thr] = 0.
         close_points[lidar == 0] = 1000.
         close_points = -close_points
-        # lidar = F.max_pool2d(lidar, 3, 1, 1)
         close_points = F.max_pool2d(close_points, pooling, 1, 1)
         close_points = -close_points
         close_points[close_points == 1000.] = 0.
@@ -399,19 +424,40 @@ def overlay_imgs(rgb, lidar, idx=0, pooling=3, max_depth=160., close_thr=25.):
 
 
 def get_flow(uv, depth, RT, cam_model, image_shape, scale_flow=True, get_valid_indexes=False, reverse=True):
+    """Get flow.
+
+    Args:
+        uv: Uv.
+        depth: Depth.
+        RT: Rt.
+        cam_model: Cam model.
+        image_shape: Image shape.
+        scale_flow: Scale flow.
+        get_valid_indexes: Get valid indexes.
+        reverse: Reverse.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     points_3D = torch.zeros((uv.shape[0], 4),
                             device=uv.device, dtype=torch.float)
 
-    # depth to 3D (X-forward)
-    points_3D[:, 1] = (uv[:, 0] - cam_model.principal_point[0]) * depth / cam_model.focal_length[0]  # Y
-    points_3D[:, 2] = (uv[:, 1] - cam_model.principal_point[1]) * depth / cam_model.focal_length[1]  # Z
+    # Back-project depth in an X-forward frame.
+    normalized_v = (uv[:, 1] - cam_model.principal_point[1]) / cam_model.focal_length[1]
+    points_3D[:, 1] = (
+        uv[:, 0] - cam_model.principal_point[0] - cam_model.skew * normalized_v
+    ) * depth / cam_model.focal_length[0]  # Y
+    points_3D[:, 2] = normalized_v * depth  # Z
     points_3D[:, 0] = depth
     points_3D[:, 3] = 1.
 
     pc_rotated = rotate_forward(points_3D.clone(), RT)
 
     uv_rgb = torch.zeros((uv.shape[0], 2), device=uv.device, dtype=torch.float)
-    uv_rgb[:, 0] = cam_model.focal_length[0] * pc_rotated[:, 1] / pc_rotated[:, 0] + cam_model.principal_point[0]
+    uv_rgb[:, 0] = (cam_model.focal_length[0] * pc_rotated[:, 1] / pc_rotated[:, 0]
+                    + cam_model.skew * pc_rotated[:, 2] / pc_rotated[:, 0]
+                    + cam_model.principal_point[0])
     uv_rgb[:, 1] = cam_model.focal_length[1] * pc_rotated[:, 2] / pc_rotated[:, 0] + cam_model.principal_point[1]
 
     if reverse:
@@ -429,14 +475,13 @@ def get_flow(uv, depth, RT, cam_model, image_shape, scale_flow=True, get_valid_i
     valid_index = valid_index & (uv_rgb[:, 1] < image_shape[0])
     
     
-    # Remove small flow
+    # Remove tiny flow.
     flow[abs(flow)<0.5] = 0
 
-    # PWC-Net divides the flow by 20
+    # Apply PWC-Net's 1/20 flow scale.
     if scale_flow:
         flow /= 20.
 
-    # valid_index = ((flow[:, 0] != 0.) & (flow[:, 1] != 0.))
     if get_valid_indexes:
         return flow.clone(), points_3D.clone(), valid_index
     else:
@@ -444,19 +489,40 @@ def get_flow(uv, depth, RT, cam_model, image_shape, scale_flow=True, get_valid_i
 
 
 def get_flow_zforward(uv, depth, RT, cam_model, image_shape, scale_flow=True, get_valid_indexes=False, reverse=False):
+    """Construct sparse flow from corresponding points in positive-Z camera coordinates.
+
+    Args:
+        uv: Uv.
+        depth: Depth.
+        RT: Rt.
+        cam_model: Cam model.
+        image_shape: Image shape.
+        scale_flow: Scale flow.
+        get_valid_indexes: Get valid indexes.
+        reverse: Reverse.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     points_3D = torch.zeros((uv.shape[0], 4),
                             device=uv.device, dtype=torch.float)
 
-    # depth to 3D (X-forward)
-    points_3D[:, 0] = (uv[:, 0] - cam_model.principal_point[0]) * depth / cam_model.focal_length[0]  # Y
-    points_3D[:, 1] = (uv[:, 1] - cam_model.principal_point[1]) * depth / cam_model.focal_length[1]  # Z
+    # Back-project depth in a Z-forward frame.
+    normalized_v = (uv[:, 1] - cam_model.principal_point[1]) / cam_model.focal_length[1]
+    points_3D[:, 0] = (
+        uv[:, 0] - cam_model.principal_point[0] - cam_model.skew * normalized_v
+    ) * depth / cam_model.focal_length[0]  # X
+    points_3D[:, 1] = normalized_v * depth  # Y
     points_3D[:, 2] = depth
     points_3D[:, 3] = 1.
 
     pc_rotated = rotate_forward(points_3D.clone(), RT)
 
     uv_rgb = torch.zeros((uv.shape[0], 2), device=uv.device, dtype=torch.float)
-    uv_rgb[:, 0] = cam_model.focal_length[0] * pc_rotated[:, 0] / pc_rotated[:, 2] + cam_model.principal_point[0]
+    uv_rgb[:, 0] = (cam_model.focal_length[0] * pc_rotated[:, 0] / pc_rotated[:, 2]
+                    + cam_model.skew * pc_rotated[:, 1] / pc_rotated[:, 2]
+                    + cam_model.principal_point[0])
     uv_rgb[:, 1] = cam_model.focal_length[1] * pc_rotated[:, 1] / pc_rotated[:, 2] + cam_model.principal_point[1]
 
     if reverse:
@@ -473,14 +539,13 @@ def get_flow_zforward(uv, depth, RT, cam_model, image_shape, scale_flow=True, ge
     valid_index = valid_index & (uv_rgb[:, 0] < image_shape[1])
     valid_index = valid_index & (uv_rgb[:, 1] < image_shape[0])
 
-    # Remove small flow
+    # Remove tiny flow.
     flow[abs(flow) < 0.5] = 0
 
-    # PWC-Net divides the flow by 20
+    # Apply PWC-Net's 1/20 flow scale.
     if scale_flow:
         flow /= 20.
 
-    # valid_index = ((flow[:, 0] != 0.) & (flow[:, 1] != 0.))
     if get_valid_indexes:
         return flow.clone(), points_3D.clone(), valid_index
     else:
@@ -488,13 +553,17 @@ def get_flow_zforward(uv, depth, RT, cam_model, image_shape, scale_flow=True, ge
 
 
 def project_points_pose(xyzw, hyp_pose, cam_mat, real_uv):
-    """
+    """Project points pose.
 
-    :param xyzw: 3D Points tensor, shape 4xN, Z-forward
-    :param hyp_pose: Output of solvePnP
-    :param cam_mat: intrinsic camera matrix 3x3
-    :param real_uv: Real 2D projections tensor, shape 2xN or Nx2
-    :return: Projection of 3D points into the camera plane placed in hyp_pose
+    Args:
+        xyzw: Xyzw.
+        hyp_pose: Hyp pose.
+        cam_mat: Cam mat.
+        real_uv: Real uv.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
     """
     if xyzw.shape[1] == 4 and xyzw.shape[0] != 4:
         xyzw = xyzw.t()
@@ -517,6 +586,18 @@ def project_points_pose(xyzw, hyp_pose, cam_mat, real_uv):
 
 
 def downsample_flow_and_mask(flow, mask, downsample_ratio, scale_flow=False):
+    """Downsample flow and mask.
+
+    Args:
+        flow: Flow.
+        mask: Validity mask; nonzero entries participate in the operation.
+        downsample_ratio: Downsample ratio.
+        scale_flow: Scale flow.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     downsampled_flow = torch.zeros((flow.shape[0]//downsample_ratio, flow.shape[1]//downsample_ratio, 2),
                                    device=flow.device, dtype=torch.float)
     downsampled_flow = visibility.downsample_flow(flow, downsampled_flow, flow.shape[1]//downsample_ratio,
@@ -534,6 +615,12 @@ def downsample_flow_and_mask(flow, mask, downsample_ratio, scale_flow=False):
 
 
 def downsample_depth(depth, downsample_ratio):
+    """Downsample depth.
+
+    Args:
+        depth: Depth.
+        downsample_ratio: Downsample ratio.
+    """
     downsampled_depth = torch.zeros((depth.shape[0]//downsample_ratio, depth.shape[1]//downsample_ratio, 1),
                                    device=depth.device, dtype=torch.float)
     downsampled_depth = visibility.downsample_depth(depth, downsampled_depth, depth.shape[1]//downsample_ratio,
@@ -541,15 +628,31 @@ def downsample_depth(depth, downsample_ratio):
     return downsampled_depth
 
 
-# From HD3
+# Adapted from HD3.
 def disp2flow(disp):
+    """Disp2flow.
+
+    Args:
+        disp: Disp.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     assert disp.size(1) == 1
     padder = torch.zeros(disp.size(), device=disp.device)
     return torch.cat([disp, padder], dim=1)
 
 
-# From HD3
+# Adapted from HD3.
 def resize_dense_vector(vec, des_height, des_width):
+    """Resize a flow field and scale its horizontal and vertical components with the image axes.
+
+    Args:
+        vec: Vec.
+        des_height: Des height.
+        des_width: Des width.
+    """
     ratio_height = float(des_height / vec.size(2))
     ratio_width = float(des_width / vec.size(3))
     vec = F.interpolate(
@@ -564,11 +667,13 @@ def resize_dense_vector(vec, des_height, des_width):
 
 
 def EndPointError(output, gt):
-    # output: [B, 1/2, H, W], stereo or flow prediction
-    # gt: [B, C, H, W], 2D ground-truth annotation which may contain a mask
-    # NOTE: To benchmark the result, please ensure the ground-truth keeps
-    # its ORIGINAL RESOLUTION.
-    if output.size(1) == 1:  # stereo
+    """End Point Error.
+
+    Args:
+        output: Output.
+        gt: Gt.
+    """
+    if output.size(1) == 1:  # A single channel represents disparity.
         output = disp2flow(output)
     output = resize_dense_vector(output, gt.size(2), gt.size(3))
     error = torch.norm(output - gt[:, :2, :, :], 2, 1, keepdim=False)
@@ -581,12 +686,10 @@ def EndPointError(output, gt):
 
 
 def uncertainty_to_color(_tensor):
-    """
-    Args:
-        _tensor: (2, H, W)
+    """Uncertainty to color.
 
-    Returns:
-        color: (H, W, 3)
+    Args:
+        _tensor: Tensor.
     """
     total_uncertainty = _tensor[0, :, :] + _tensor[1, :, :]
     total_uncertainty = torch.from_numpy(total_uncertainty)
@@ -599,40 +702,40 @@ def uncertainty_to_color(_tensor):
     color = color[0].permute(1, 2, 0).numpy()
     return color
 
-# From: https://scikit-surgerycore.readthedocs.io
+# Source: https://scikit-surgerycore.readthedocs.io
 def average_quaternions(quaternions):
-    """
-    Calculate average quaternion
+    """Average quaternions.
 
-    :params quaternions: is a Nx4 numpy matrix and contains the quaternions
-        to average in the rows.
-        The quaternions are arranged as (w,x,y,z), with w being the scalar
-
-    :returns: the average quaternion of the input. Note that the signs
-        of the output quaternion can be reversed, since q and -q
-        describe the same orientation
+    Args:
+        quaternions: Quaternions.
     """
 
-    # Number of quaternions to average
+    # Number of quaternions.
     samples = quaternions.shape[0]
     mat_a = np.zeros(shape=(4, 4), dtype=np.float64)
 
     for i in range(0, samples):
         quat = quaternions[i, :]
-        # multiply quat with its transposed version quat' and add mat_a
+        # Accumulate quaternion outer products.
         mat_a = np.outer(quat, quat) + mat_a
 
-    # scale
+    # Normalize by sample count.
     mat_a = (1.0/ samples)*mat_a
-    # compute eigenvalues and -vectors
+    # Compute eigenpairs.
     eigen_values, eigen_vectors = np.linalg.eig(mat_a)
-    # Sort by largest eigenvalue
+    # Sort by descending eigenvalue.
     eigen_vectors = eigen_vectors[:, eigen_values.argsort()[::-1]]
-    # return the real part of the largest eigenvector (has only real part)
+    # The principal eigenvector is the mean quaternion.
     return np.real(np.ravel(eigen_vectors[:, 0]))
 
 
 def voxelize_gpu(points, voxel_size):
+    """Voxelize gpu.
+
+    Args:
+        points: Points.
+        voxel_size: Voxel size.
+    """
     batch = torch.zeros(points.shape[0], device=points.device, dtype=torch.long)
     voxel_cluster = voxel_grid(points, batch, size = voxel_size)
     voxel_cluster, perm = consecutive_cluster(voxel_cluster)
@@ -642,8 +745,14 @@ def voxelize_gpu(points, voxel_size):
     return points_sampled
 
 
-# From https://github.com/dilaragokay/central-tendency-rotations/
+# Source: https://github.com/dilaragokay/central-tendency-rotations/
 def hamilton_product(q1, q2):
+    """Hamilton product.
+
+    Args:
+        q1: Q1.
+        q2: Q2.
+    """
     a1, b1, c1, d1 = q1
     a2, b2, c2, d2 = q2
     return torch.tensor(
@@ -656,8 +765,14 @@ def hamilton_product(q1, q2):
     )
 
 
-# From https://github.com/dilaragokay/central-tendency-rotations/
+# Source: https://github.com/dilaragokay/central-tendency-rotations/
 def mean(Q, weights=None):
+    """Mean.
+
+    Args:
+        Q: Q.
+        weights: Checkpoint paths in cascade order.
+    """
     if weights is None:
         weights = torch.ones(len(Q), device=torch.device("cuda:0")) / len(Q)
     A = torch.zeros((4, 4), device=torch.device("cuda:0"))
@@ -673,12 +788,20 @@ def mean(Q, weights=None):
         return -q_avg
     return q_avg
 
-# From https://github.com/dilaragokay/central-tendency-rotations/
+# Source: https://github.com/dilaragokay/central-tendency-rotations/
 def quaternion_median(Q, p=1, max_angular_update=0.0001, max_iterations=1000):
+    """Quaternion median.
+
+    Args:
+        Q: Q.
+        p: P.
+        max_angular_update: Max angular update.
+        max_iterations: Max iterations.
+    """
     Q = Q.clone().detach()
     weights = torch.ones(len(Q)) / len(Q)
     q_median = mean(Q, weights)
-    Q = Q.cpu()  # because we do sequential operations
+    Q = Q.cpu()  # Sequential operations run on CPU.
     q_median = q_median.cpu()
     EPS_ANGLE = 0.0000001
     max_angular_update = max(max_angular_update, EPS_ANGLE)
@@ -722,8 +845,14 @@ def quaternion_median(Q, p=1, max_angular_update=0.0001, max_iterations=1000):
     return q_median
 
 
-# From https://github.com/dilaragokay/central-tendency-rotations/
+# Source: https://github.com/dilaragokay/central-tendency-rotations/
 def quaternion_mode(Q, precision=3):
+    """Quaternion mode.
+
+    Args:
+        Q: Q.
+        precision: Precision.
+    """
     if isinstance(Q, torch.Tensor):
         Q = Q.clone().detach()
     else:
@@ -734,6 +863,11 @@ def quaternion_mode(Q, precision=3):
 
 
 def str2bool(v):
+    """Parse supported textual boolean values and reject invalid input.
+
+    Args:
+        v: V.
+    """
     if isinstance(v, bool):
         return v
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -745,10 +879,28 @@ def str2bool(v):
 
 
 def get_flow_rgb2lidar(*args):
+    """Get flow rgb2lidar.
+
+    Args:
+        args: Positional arguments forwarded to the operation.
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     pass
 
 
 def get_ECE(predicted_flow, predicted_uncertainty, target_flow, mask, loss_type="NLL"):
+    """Get ECE.
+
+    Args:
+        predicted_flow: Predicted flow.
+        predicted_uncertainty: Predicted uncertainty.
+        target_flow: Target flow.
+        mask: Validity mask; nonzero entries participate in the operation.
+        loss_type: Loss type.
+    """
     gamma1 = predicted_flow[:, 0, :, :]
     y1 = target_flow[:, 0, :, :]
     if loss_type == "NLL":

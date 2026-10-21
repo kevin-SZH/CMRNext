@@ -1,3 +1,6 @@
+"""RAFT flow supervision and uncertainty losses.
+"""
+
 import math
 import torch
 import torch.nn as nn
@@ -5,6 +8,14 @@ import torch.nn.functional as F
 
 
 def NegativeLogLikelihoodLoss(predicted_flow, predicted_uncertainty, target_flow, mask):
+    """Compute the negative log likelihood loss for flow uncertainty.
+
+    Args:
+        predicted_flow: Predicted flow.
+        predicted_uncertainty: Predicted uncertainty.
+        target_flow: Target flow.
+        mask: Validity mask; nonzero entries participate in the operation.
+    """
     u_component_mean = predicted_flow[:, 0, :, :]
     u_component_sigma = predicted_uncertainty[:, 0, :, :]
     u_component_distribution = torch.distributions.normal.Normal(u_component_mean, u_component_sigma)
@@ -22,12 +33,23 @@ def NegativeLogLikelihoodLoss(predicted_flow, predicted_uncertainty, target_flow
 
 def RAFT_loss2(flow_preds, uncertainty_preds, flow_gt, valid, upsample=True, gamma=0.8, weight_nll=-1.0,
                unc_type="DER"):
-    """ Loss function defined over sequence of flow predictions """
+    """Compute weighted multi-iteration RAFT flow supervision over valid correspondences.
+
+    Args:
+        flow_preds: Flow preds.
+        uncertainty_preds: Uncertainty preds.
+        flow_gt: Flow gt.
+        valid: Valid.
+        upsample: Upsample.
+        gamma: Gamma.
+        weight_nll: Weight nll.
+        unc_type: Unc type.
+    """
 
     n_predictions = len(flow_preds)
     flow_loss = 0.0
 
-    # exlude invalid pixels and extremely large diplacements
+    # Exclude invalid pixels and extreme displacements.
     valid = valid[:, 0]
     mag = torch.sum(flow_gt ** 2, dim=1).sqrt()
     valid = (valid >= 0.5) & (mag < 1000)

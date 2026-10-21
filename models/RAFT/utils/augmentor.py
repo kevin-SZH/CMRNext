@@ -1,3 +1,6 @@
+"""Image and optical flow augmentation.
+"""
+
 import numpy as np
 import random
 import math
@@ -9,7 +12,21 @@ import torchvision
 import torch.nn.functional as F
 
 class FlowAugmentor:
+    """Flow Augmentor.
+
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     def __init__(self, crop_size, min_scale=-0.2, max_scale=0.5):
+        """Initialize FlowAugmentor from the supplied settings.
+
+        Args:
+            crop_size: Crop size.
+            min_scale: Min scale.
+            max_scale: Max scale.
+        """
         self.crop_size = crop_size
         self.augcolor = torchvision.transforms.ColorJitter(
             brightness=0.4, 
@@ -29,6 +46,12 @@ class FlowAugmentor:
 
     def color_transform(self, img1, img2):
 
+        """Color transform.
+
+        Args:
+            img1: Img1.
+            img2: Img2.
+        """
         if np.random.rand() < self.asymmetric_color_aug_prob:
             img1 = np.array(self.augcolor(Image.fromarray(img1)), dtype=np.uint8)
             img2 = np.array(self.augcolor(Image.fromarray(img2)), dtype=np.uint8)
@@ -41,6 +64,13 @@ class FlowAugmentor:
         return img1, img2
 
     def eraser_transform(self, img1, img2, bounds=[50, 100]):
+        """Eraser transform.
+
+        Args:
+            img1: Img1.
+            img2: Img2.
+            bounds: Bounds.
+        """
         ht, wd = img1.shape[:2]
         if np.random.rand() < self.eraser_aug_prob:
             mean_color = np.mean(img2.reshape(-1, 3), axis=0)
@@ -54,8 +84,15 @@ class FlowAugmentor:
         return img1, img2
 
     def spatial_transform(self, img1, img2, flow):
-        # randomly sample scale
+        # Sample scale.
 
+        """Spatial transform.
+
+        Args:
+            img1: Img1.
+            img2: Img2.
+            flow: Flow.
+        """
         ht, wd = img1.shape[:2]
         min_scale = np.maximum(
             (self.crop_size[0] + 1) / float(ht), 
@@ -75,18 +112,18 @@ class FlowAugmentor:
         scale_y = np.clip(scale_y, min_scale, None)
 
         if np.random.rand() < self.spatial_aug_prob:
-            # rescale the images
+            # Rescale images.
             img1 = cv2.resize(img1, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             img2 = cv2.resize(img2, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             flow = cv2.resize(flow, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             flow = flow * [scale_x, scale_y]
 
-        if np.random.rand() < 0.5: # h-flip
+        if np.random.rand() < 0.5: # Horizontal flip.
             img1 = img1[:, ::-1]
             img2 = img2[:, ::-1]
             flow = flow[:, ::-1] * [-1.0, 1.0]
 
-        if np.random.rand() < 0.1: # v-flip
+        if np.random.rand() < 0.1: # Vertical flip.
             img1 = img1[::-1, :]
             img2 = img2[::-1, :]
             flow = flow[::-1, :] * [1.0, -1.0]
@@ -104,6 +141,13 @@ class FlowAugmentor:
         return img1, img2, flow
 
     def __call__(self, img1, img2, flow):
+        """Apply FlowAugmentor to the supplied inputs.
+
+        Args:
+            img1: Img1.
+            img2: Img2.
+            flow: Flow.
+        """
         img1, img2 = self.color_transform(img1, img2)
         img1, img2 = self.eraser_transform(img1, img2)
         img1, img2, flow = self.spatial_transform(img1, img2, flow)
@@ -116,7 +160,21 @@ class FlowAugmentor:
 
 
 class FlowAugmentorKITTI:
+    """Flow Augmentor KITTI.
+
+
+    Geometry:
+        Extrinsics map LiDAR column vectors to the camera frame, with translation
+        in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+    """
     def __init__(self, crop_size, min_scale=-0.2, max_scale=0.5):
+        """Initialize FlowAugmentorKITTI from the supplied settings.
+
+        Args:
+            crop_size: Crop size.
+            min_scale: Min scale.
+            max_scale: Max scale.
+        """
         self.crop_size = crop_size
         self.augcolor = torchvision.transforms.ColorJitter(
             brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3/3.14)
@@ -128,12 +186,24 @@ class FlowAugmentorKITTI:
         self.eraser_aug_prob = 0.5
         
     def color_transform(self, img1, img2):
+        """Color transform.
+
+        Args:
+            img1: Img1.
+            img2: Img2.
+        """
         image_stack = np.concatenate([img1, img2], axis=0)
         image_stack = np.array(self.augcolor(Image.fromarray(image_stack)), dtype=np.uint8)
         img1, img2 = np.split(image_stack, 2, axis=0)
         return img1, img2
 
     def eraser_transform(self, img1, img2):
+        """Eraser transform.
+
+        Args:
+            img1: Img1.
+            img2: Img2.
+        """
         ht, wd = img1.shape[:2]
         if np.random.rand() < self.eraser_aug_prob:
             mean_color = np.mean(img2.reshape(-1, 3), axis=0)
@@ -147,6 +217,18 @@ class FlowAugmentorKITTI:
         return img1, img2
 
     def resize_sparse_flow_map(self, flow, valid, fx=1.0, fy=1.0):
+        """Resize sparse flow map.
+
+        Args:
+            flow: Flow.
+            valid: Valid.
+            fx: Fx.
+            fy: Fy.
+
+        Geometry:
+            Extrinsics map LiDAR column vectors to the camera frame, with translation
+            in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+        """
         ht, wd = flow.shape[:2]
         coords = np.meshgrid(np.arange(wd), np.arange(ht))
         coords = np.stack(coords, axis=-1)
@@ -181,8 +263,16 @@ class FlowAugmentorKITTI:
         return flow_img, valid_img
 
     def spatial_transform(self, img1, img2, flow, valid):
-        # randomly sample scale
+        # Sample scale.
 
+        """Spatial transform.
+
+        Args:
+            img1: Img1.
+            img2: Img2.
+            flow: Flow.
+            valid: Valid.
+        """
         ht, wd = img1.shape[:2]
         min_scale = np.maximum(
             (self.crop_size[0] + 1) / float(ht), 
@@ -193,12 +283,12 @@ class FlowAugmentorKITTI:
         scale_y = np.clip(scale, min_scale, None)
 
         if np.random.rand() < self.spatial_aug_prob:
-            # rescale the images
+            # Rescale images.
             img1 = cv2.resize(img1, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             img2 = cv2.resize(img2, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             flow, valid = self.resize_sparse_flow_map(flow, valid, fx=scale_x, fy=scale_y)
 
-        if np.random.rand() < 0.5: # h-flip
+        if np.random.rand() < 0.5: # Horizontal flip.
             img1 = img1[:, ::-1]
             img2 = img2[:, ::-1]
             flow = flow[:, ::-1] * [-1.0, 1.0]
@@ -221,6 +311,14 @@ class FlowAugmentorKITTI:
 
 
     def __call__(self, img1, img2, flow, valid):
+        """Apply FlowAugmentorKITTI to the supplied inputs.
+
+        Args:
+            img1: Img1.
+            img2: Img2.
+            flow: Flow.
+            valid: Valid.
+        """
         img1, img2 = self.color_transform(img1, img2)
         img1, img2 = self.eraser_transform(img1, img2)
         img1, img2, flow, valid = self.spatial_transform(img1, img2, flow, valid)

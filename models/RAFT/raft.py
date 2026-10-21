@@ -1,3 +1,6 @@
+"""CMRNext recurrent matching network and flow prediction.
+"""
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -11,8 +14,21 @@ from models.RAFT.utils.utils import coords_grid, upflow2, upflow8
 
 
 class CMRNext(nn.Module):
+    """CMRNext.
+    """
     def __init__(self, args, use_reflectance=False, with_uncertainty=False, fourier_levels=-1, unc_type="DER",
                  unc_freeze=False, context_encoder='rgb'):
+        """Initialize CMRNext from the supplied settings.
+
+        Args:
+            args: Positional arguments forwarded to the operation.
+            use_reflectance: Use reflectance.
+            with_uncertainty: With uncertainty.
+            fourier_levels: Fourier levels.
+            unc_type: Unc type.
+            unc_freeze: Unc freeze.
+            context_encoder: Context encoder.
+        """
         super(CMRNext, self).__init__()
         self.args = args
         self.with_uncertainty = with_uncertainty
@@ -44,7 +60,7 @@ class CMRNext(nn.Module):
             lidar_feat = lidar_feat + 1
         if use_reflectance:
             lidar_feat = lidar_feat + 1
-        # feature network, context network, and update block
+        # Initialize feature, context, and update networks.
         if args.small:
             self.fnet_img = SmallEncoder(output_dim=128, norm_fn='instance', dropout=args.dropout)
             self.fnet_lidar = SmallEncoder(output_dim=128, norm_fn='instance', dropout=args.dropout, in_feat=lidar_feat)
@@ -83,21 +99,42 @@ class CMRNext(nn.Module):
 
 
     def freeze_bn(self):
+        """Freeze bn.
+        """
         for m in self.modules():
             if isinstance(m, nn.BatchNorm2d):
                 m.eval()
 
     def initialize_flow(self, img, dtype=torch.float32):
-        """ Flow is represented as difference between two coordinate grids flow = coords1 - coords0"""
+        """Initialize flow.
+
+        Args:
+            img: Img.
+            dtype: Dtype.
+
+        Geometry:
+            Extrinsics map LiDAR column vectors to the camera frame, with translation
+            in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+        """
         N, C, H, W = img.shape
         coords0 = coords_grid(N, H//8, W//8).to(img.device).type(dtype)
         coords1 = coords_grid(N, H//8, W//8).to(img.device).type(dtype)
 
-        # optical flow computed as difference: flow = coords1 - coords0
+        # Flow is coords1 - coords0.
         return coords0, coords1
 
     def upsample_flow(self, flow, mask, uncertainty=None):
-        """ Upsample flow field [H/8, W/8, 2] -> [H, W, 2] using convex combination """
+        """Upsample flow.
+
+        Args:
+            flow: Flow.
+            mask: Validity mask; nonzero entries participate in the operation.
+            uncertainty: Uncertainty.
+
+        Geometry:
+            Extrinsics map LiDAR column vectors to the camera frame, with translation
+            in meters. The left residual is delta = Ti @ inverse(T0), so delta @ T0 = Ti.
+        """
         N, _, H, W = flow.shape
         mask = mask.view(N, 1, 9, 8, 8, H, W)
         mask = torch.softmax(mask, dim=2)
@@ -131,20 +168,26 @@ class CMRNext(nn.Module):
 
 
     def forward(self, image1, lidar_image, iters=12, flow_init=None, upsample=True, test_mode=False):
-        """ Estimate optical flow between pair of frames """
+        """Compute the forward pass of CMRNext.
+
+        Args:
+            image1: Image1.
+            lidar_image: Lidar image.
+            iters: Iters.
+            flow_init: Flow init.
+            upsample: Upsample.
+            test_mode: Test mode.
+        """
 
         hdim = self.hidden_dim
         cdim = self.context_dim
 
-        # run the feature network
-        # fmap1 = self.fnet_img(image1)
-        # fmap2 = self.fnet_lidar(lidar_image)
+        # Run feature encoders.
         fmap1 = self.fnet_lidar(lidar_image)
         fmap2 = self.fnet_img(image1)
-        # with amp.autocast(enabled=False):
         corr_fn = CorrBlock(fmap1, fmap2, radius=self.args.corr_radius)
 
-        # run the context network
+        # Run the context encoder.
         if self.context_encoder == 'rgb':
             cnet = self.cnet(image1)
         else:
@@ -155,8 +198,6 @@ class CMRNext(nn.Module):
         net = torch.tanh(net)
         inp = torch.relu(inp)
 
-        # if dropout is being used reset mask
-        # self.update_block.reset_mask(net, inp)
         coords0, coords1 = self.initialize_flow(image1, dtype=fmap1.dtype)
 
         if flow_init is not None:
@@ -166,7 +207,7 @@ class CMRNext(nn.Module):
         flow_uncertainties = []
         for itr in range(iters):
             coords1 = coords1.detach()
-            corr = corr_fn(coords1) # index correlation volume
+            corr = corr_fn(coords1) # Index the correlation volume.
 
             flow = coords1 - coords0
             net, up_mask, delta_flow = self.update_block(net, inp, corr, flow)

@@ -1,3 +1,6 @@
+"""Correlation pyramids and local correlation sampling.
+"""
+
 import torch
 import torch.nn.functional as F
 
@@ -5,12 +8,22 @@ from models.RAFT.utils.utils import bilinear_sampler
 
 
 class CorrBlock:
+    """Corr Block.
+    """
     def __init__(self, fmap1, fmap2, num_levels=4, radius=4):
+        """Initialize CorrBlock from the supplied settings.
+
+        Args:
+            fmap1: Fmap1.
+            fmap2: Fmap2.
+            num_levels: Num levels.
+            radius: Radius.
+        """
         self.num_levels = num_levels
         self.radius = radius
         self.corr_pyramid = []
 
-        # all pairs correlation
+        # Compute all-pairs correlation.
         corr = CorrBlock.corr(fmap1, fmap2)
 
         batch, h1, w1, dim, h2, w2 = corr.shape
@@ -22,6 +35,11 @@ class CorrBlock:
             self.corr_pyramid.append(corr)
 
     def __call__(self, coords):
+        """Apply CorrBlock to the supplied inputs.
+
+        Args:
+            coords: Coords.
+        """
         r = self.radius
         coords = coords.permute(0, 2, 3, 1)
         batch, h1, w1, _ = coords.shape
@@ -46,6 +64,12 @@ class CorrBlock:
 
     @staticmethod
     def corr(fmap1, fmap2):
+        """Corr.
+
+        Args:
+            fmap1: Fmap1.
+            fmap2: Fmap2.
+        """
         batch, dim, ht, wd = fmap1.shape
         fmap1 = fmap1.view(batch, dim, ht*wd)
         fmap2 = fmap2.view(batch, dim, ht*wd)
