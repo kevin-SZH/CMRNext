@@ -1,311 +1,183 @@
-<div align="center" style="margin-top: 0; padding-top: 0; line-height: 1;">
-    <h1>CMRNext: Camera to LiDAR Matching in the Wild for<br/>Localization and Extrinsic Calibration</h1>
-    <a href="https://cmrnext.cs.uni-freiburg.de/" target="_blank" style="margin: 2px;"><img alt="Project Website"
-    src="https://img.shields.io/badge/🌐%20Project Website-CMRNext-ffc107?color=42a5f5&logoColor=white" style="display: inline-block; vertical-align: middle;"/></a>
-    <a href="https://github.com/robot-learning-freiburg/CMRNext/" target="_blank" style="margin: 2px;"><img alt="GitHub"
-    src="https://img.shields.io/badge/GitHub-CMRNext-24292e?logo=github&logoColor=white" style="display: inline-block; vertical-align: middle;"/></a>
-    <a href="https://arxiv.org/abs/2402.00129" target="_blank" style="margin: 2px;"><img src="https://img.shields.io/badge/arXiv-2402.00129-b31b1b" alt="arXiv"  style="display: inline-block; vertical-align: middle;"></a>
-    <a href="https://ieeexplore.ieee.org/document/10908048" target="_blank" style="margin: 2px;"><img src="https://img.shields.io/badge/IEEE-Xplore-blue" alt="arXiv" style="display: inline-block; vertical-align: middle;"></a>
-    <a href="https://github.com/robot-learning-freiburg/CMRNext/blob/main/LICENSE" target="_blank" style="margin: 2px;"><img src="https://img.shields.io/github/license/robot-learning-freiburg/CMRNext" style="display: inline-block; vertical-align: middle;" /></a>
-</div>
+# CMRNext Scene Calibration Extension
+
+**Language:** English · [中文](README_zh.md)
+
+This repository is an unofficial extension of [CMRNext](https://github.com/robot-learning-freiburg/CMRNext) for camera-LiDAR extrinsic calibration on explicitly selected scene directories. It adds MID360 and RS32 examples, fixed and per-frame extrinsic training data, online perturbation modes, deterministic evaluation, and auditable outputs.
+
+The original CMRNext paper, models, localization code, and experimental claims belong to the upstream authors. Results produced by this fork should not be attributed to them.
+
+## Changes from upstream CMRNext
+
+| Area | Upstream CMRNext | This repository |
+|---|---|---|
+| Calibration training data | KITTI, Argoverse 1, and PandaSet loaders | Explicit scene directories with configurable camera and LiDAR geometry |
+| Sensor examples | Public automotive datasets | Livox MID360 and RoboSense RS32 |
+| Extrinsic targets | Dataset calibration with random perturbations | Stored `T0`/per-frame `Ti`, fixed `T0`, or perturbations sampled around each `Ti` |
+| Geometry | Dataset-specific behavior | `delta = Ti @ inverse(T0)`, with `delta @ T0 = Ti` |
+| Evaluation | Direct evaluator calls | `python test.py` for scenes, KITTI fixed cameras, and the original KITTI perturbation benchmark |
+| Reproducibility | Dataset-dependent | Explicit scenes, seed, dry-run, logs, checkpoint-stage mapping, and `errors.json` |
+
+Training now uses `python train_calibration.py` and the scene contract below. KITTI, Argoverse, and PandaSet code remains available for upstream inference and localization use, but the current training entry point does not accept those raw datasets.
 
 
-Repository providing the source code for the paper
->CMRNext: Camera to LiDAR Matching in the Wild for Localization and Extrinsic Calibration
->
->[Daniele Cattaneo](https://rl.uni-freiburg.de/people/cattaneo) and [Abhinav Valada](https://rl.uni-freiburg.de/people/valada)  
->IEEE Transactions on Robotics, 2025.  
+## Installation
 
-<p align="center">
-  <img src="assets/overview.png" alt="Overview of CMRNext" width="1200" />
-</p>
+Docker is recommended because the project builds OpenCV with CUDA and the custom PnP extension.
 
-If you use CMRNext, please cite:
-```
-@article{cattaneo2025cmrnext,
-    title={CMRNext: Camera to LiDAR Matching in the Wild for Localization and Extrinsic Calibration}, 
-    author={Daniele Cattaneo and Abhinav Valada},
-    journal={IEEE Transactions on Robotics}, 
-    year={2025},
-    volume={41},
-    pages={1995-2013},
-    doi={10.1109/TRO.2025.3546784}
-}
-```
+~~~bash
+docker build . -t cmrnext-scene
+docker run --gpus=all --shm-size=2g -it \
+  -v /path/to/data:/data \
+  -v /path/to/checkpoints:/root/CMRNext/checkpoints \
+  cmrnext-scene
+~~~
 
-## News
-- [x] 2025/08/19 - [Extrinsic calibration training](#Extrinsic-Calibration-Training)
-- [x] 2025/05/07 - Localization inference code on Pandaset
-- [x] 2025/05/02 - We released the [inference code for calibration on custom datasets](#Inference-on-your-own-dataset), and we added some visualization.
-- [x] 2025/04/11 - We released the [inference code for monocular localization on Argoverse](#Monocular-Localization-in-LiDAR-Maps)
-- [x] 2025/03/26 — We released the [inference code for extrinsic calibration](#Camera-LiDAR-Extrinsic-Calibration).
-- [x] 2025/04/07 - We released the [inference code for monocular localization on KITTI](#Monocular-Localization-in-LiDAR-Maps)
-- [x] 2025/03/25 — We released the ROS code for camera-LiDAR extrinsic calibration on KITTI using [MDPCalib](https://github.com/robot-learning-freiburg/MDPCalib/), which combines CMRNext with graph optimization.
+The image uses CUDA 11.3, PyTorch 1.11, and OpenCV 4.7. RTX 50 series support is not included in the current Dockerfile. For manual setup, see [requirements.txt](requirements.txt), [Dockerfile](Dockerfile), and [visibility_pkg](visibility_pkg/).
 
+## Scene data contract
 
-## TODO
-- [ ] Training code for localization
+Each scene is selected explicitly. Directory names, metadata split fields, manifests, and statistics do not change whether a scene is used for training, validation, or testing.
 
+~~~text
+scene_001/
+├── image_2/                  # synchronized RGB images, e.g. 000000.png
+├── velodyne/                 # matching Nx4 float32 .bin point clouds
+├── calib.txt                 # camera projection matrix, P0 or P2
+├── nominal_extrinsic.txt     # one 3x4 or 4x4 LiDAR-to-camera T0
+├── poses.txt                 # one per-frame LiDAR-to-camera Ti
+└── residuals.txt             # one per-frame Ti @ inverse(T0)
+~~~
 
-## Abstract
-LiDARs are widely used for mapping and localization in dynamic environments. However, their high cost limits their widespread adoption. On the other hand, monocular localization in LiDAR maps using inexpensive cameras is a cost-effective alternative for large-scale deployment. Nevertheless, most existing approaches struggle to generalize to new sensor setups and environments, requiring retraining or fine-tuning. In this paper, we present CMRNext, a novel approach for camera-LIDAR matching that is independent of sensor-specific parameters, generalizable, and can be used in the wild for monocular localization in LiDAR maps and camera-LiDAR extrinsic calibration. CMRNext exploits recent advances in deep neural networks for matching cross-modal data and standard geometric techniques for robust pose estimation. We reformulate the point-pixel matching problem as an optical flow estimation problem and solve the Perspective-n-Point problem based on the resulting correspondences to find the relative pose between the camera and the LiDAR point cloud. We extensively evaluate CMRNext on six different robotic platforms, including three publicly available datasets and three in-house robots. Our experimental evaluations demonstrate that CMRNext outperforms existing approaches on both tasks and effectively generalizes to previously unseen environments and sensor setups in a zero-shot manner.
+Directory names can be changed with `dataset.layout`, and file names with `dataset.files`. Matching image and point-cloud stems identify a frame. Translations are in meters, transforms use column vectors, and extrinsics map LiDAR points into the camera frame.
 
-## Datasets
-The code natively supports the following datasets: [KITTI](#kitti), [Argoverse 1](#argoverse), and [Pandaset](#pandaset).
+~~~text
+network input: T0 @ p_lidar
+target:        Ti @ p_lidar
+supervision:   delta = Ti @ inverse(T0)
+identity:      delta @ T0 = Ti
+~~~
 
-#### KITTI
-Download the `KITTI Odometry` dataset available [here](https://www.cvlibs.net/datasets/kitti/eval_odometry.php).
-All parts except for the grayscale images are required. Additionally, download the ground truth poses from [SemanticKITTI](https://semantic-kitti.org/dataset.html#download), specifically the `SemanticKITTI label data`.
+## Training data and perturbations
 
-After extracting all files (e.g., in the folder `\data\KITTI`), the folder structure should look like
-```bash
-\data\KITTI\sequences
-├── 00
-│   ├── image_2
-│   │   ├── 000000.png
-│   │   ├── 000001.png
-│   │   ├── ...
-│   │   └── 004540.png
-│   ├── image_3
-│   │   ├── 000000.png
-│   │   ├── 000001.png
-│   │   ├── ...
-│   │   └── 004540.png
-│   ├── velodyne
-│   │   ├── 000000.bin
-│   │   ├── 000001.bin
-│   │   ├── ...
-│   │   └── 004540.bin
-│   └── poses.txt
-│   └── calib.txt
-└── 01
-    ├── ...
+The same scene structure supports three modes:
 
-```
+1. **Stored multi-extrinsic with nominal jitter** (`dynamic_nominal_augmentation`): reads stored `T0`, per-frame `Ti`, and residuals. Each training access samples translation uniformly inside a ball and a random-axis rotation, applies `new_T0 = jitter @ stored_T0`, then recomputes `Ti @ inverse(new_T0)`.
+2. **Fixed single extrinsic** (`fixed_t0_online_perturbation`): requires `Ti = T0` and identity stored residuals. It samples XYZ translation and XYZ Euler components independently from symmetric uniform ranges and constructs `T_input = inverse(delta) @ Ti`.
+3. **Per-frame Ti online perturbation** (`per_ti_online_perturbation`): keeps each stored `Ti` as the target, ignores stored `T0` and residuals when generating the input, samples a new per-axis `delta`, and constructs `T_input = inverse(delta) @ Ti`.
 
-#### Argoverse
-Download the four train sets of `Argoverse 3D Tracking v1.1` from the [official website](https://www.argoverse.org/av1.html#download-link).
-Extract all files (e.g., in the folder `\data\argoverse`)
+Only one online perturbation section may be enabled. Stored multi-extrinsic evaluation never resamples its residual. Fixed-T0 evaluation derives deterministic perturbations from the seed and sample index.
 
-#### Pandaset
-Unfortunately, the pandaset dataset is not available for download from their [official website](https://scale.com/resources/download/pandaset) anymore.
-An alternative download is available at [Kaggle](https://www.kaggle.com/datasets/pz19930809/pandaset), however I haven't tested it.
+## Example YAML files
 
-## Downloading model weights for extrinsic calibration
+| File | Purpose |
+|---|---|
+| `config/train_mid360_multi_extrinsic.yaml` | MID360 stored multi-extrinsic data with small online `T0` jitter |
+| `config/train_mid360_multi_extrinsic_online.yaml` | MID360 per-frame `Ti` with online per-axis perturbations |
+| `config/train_mid360_single_extrinsic.yaml` | MID360 fixed `T0` with online per-axis perturbations |
+| `config/train_rs32_multi_extrinsic.yaml` | RS32 stored multi-extrinsic data with small online `T0` jitter |
+| `config/train_rs32_single_extrinsic.yaml` | RS32 fixed `T0` with online per-axis perturbations |
+| Training YAML files | Use the matching training YAML for evaluation; override scenes with `--scene-paths` |
 
-Please download the model weights for camera-LiDAR extrinsic calibration and for monocular localization in LiDAR maps and store them under: `/data/`.
-- Calibration model weights: https://cmrnext.cs.uni-freiburg.de/downloads/cmrnext_calibration_weights.zip
-- Localization model weights: https://cmrnext.cs.uni-freiburg.de/downloads/cmrnext_localization_weights.zip
+Examples use `schema_version: cmrnext_scene_calibration_v1`. The loader also accepts the old `cmrnext_emd_training_v2` schema. Replace `dataset.root`, scene lists, camera intrinsics, and acquisition values before a real run.
 
-## Docker
-The best way to run CMRNext is by using Docker. Given the endless variability in system setups, many things can go wrong when configuring the environment manually. If you choose not to use Docker, it may be difficult for me to help troubleshoot any issues you encounter.
+## Training examples
 
-Install [Docker](https://docs.docker.com/engine/install/) and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-Tested with `Docker version 28.0.1` and `NVIDIA Container Toolkit version 1.17.5-1`
+Always run `--dry-run` first. It reports resolved scenes, geometry, seed, output directory, image sizes, and perturbation mode without loading samples or starting CUDA.
 
-> [!CAUTION]
-> The provided Docker container does NOT support NVIDIA RTX 50 Series (Blackwell).
-> Adding support for it has low priority currently. Feel free to open a pull request.
+### MID360 per-frame Ti online perturbation
 
-- To build the image, run `docker build . -t cmrnext` in the root of this repository.
-- Prepare using GUIs in the container: `xhost +local:docker`.
-- Start container and mount the folder where your dataset are located: 
-```bash
-docker run --runtime=nvidia --shm-size=2g -it -v /tmp/.X11-unix:/tmp/.X11-unix -v PATH_TO_DATA:/data -e DISPLAY -e XAUTHORITY -e NVIDIA_DRIVER_CAPABILITIES=all cmrnext
-```
-- Within the container, move to the code folder `cd /root/CMRNext/`
+~~~bash
+python train_calibration.py \
+  --config config/train_mid360_multi_extrinsic_online.yaml \
+  --level perturbed_t0 \
+  --img_shape 576 768 \
+  --savemodel checkpoints --run_name cmrnext_ti_mid360_stage2 \
+  --epochs 300 --batch_size 4 --num_worker 4 \
+  --seed 42 --gpu -1 --gpu_count 4 --val_every 0 \
+  --dry-run
+~~~
 
-## Camera-LiDAR Extrinsic Calibration
+### RS32 fixed single extrinsic
 
-### Inference
+~~~bash
+python train_calibration.py \
+  --config config/train_rs32_single_extrinsic.yaml \
+  --level fixed_baseline \
+  --img_shape 576 768 \
+  --savemodel checkpoints --run_name rs32_fixed_t0 \
+  --epochs 300 --batch_size 4 --num_worker 4 \
+  --seed 42 --gpu 0 --gpu_count 1 \
+  --dry-run
+~~~
 
-Run the inference for camera-LiDAR extrinsic calibration, assuming the weights and the datasets are located under `\data\ `, change the paths according to your setup. Click on the specific dataset to see the exact command to run.
-<details>
-<summary>KITTI left camera:</summary>
+Remove `--dry-run` after reviewing the report. `--train-scene-paths`, `--val-scene-paths`, and `--test-scene-paths` replace the corresponding YAML lists. If validation is empty, set `--val_every 0`.
 
-```bash
-python3 evaluate_flow_calibration.py --weights /data/cmrnext-calib-LEnc-iter1.tar /data/cmrnext-calib-LEnc-iter5.tar /data/cmrnext-calib-LEnc-iter6.tar --data_folder /data/KITTI/sequences/ --dataset kitti
-```
-Example results:
-<p align="center">
-  <img src="assets/results_kitti_left.png" alt="KITTI left" width="1200" />
-</p>
-</details>
+Outputs are written to `<savemodel>/<run_name>/` and include the training log, TensorBoard events, rolling checkpoints, and the last checkpoint. TensorBoard exposes each run through the project-root `tf-logs/<run_name>` link; override the service root with `--tb_mount_root` when needed. Use `--weights ... --resume` to restore optimizer and epoch state; add `--rebuild_scheduler true` when changing the total epoch budget.
 
+## Evaluation examples
 
-<details>
-<summary>KITTI right camera:</summary>
+List checkpoints in cascade order. `--start-stage` is the stage number of the first checkpoint.
 
-```bash
-python3 evaluate_flow_calibration.py --weights /data/cmrnext-calib-LEnc-iter1.tar /data/cmrnext-calib-LEnc-iter5.tar /data/cmrnext-calib-LEnc-iter6.tar --data_folder /data/KITTI/sequences/ --dataset kitti --cam 3
-```
-Example results:
-<p align="center">
-  <img src="assets/results_kitti_right.png" alt="KITTI right" width="1200" />
-</p>
-</details>
+`scene` is the required subcommand for explicit scene evaluation; it selects the evaluator mode after `test.py`. Other modes use their own subcommand, such as `kitti` or `kitti-perturbed`.
 
-<details>
-<summary>Argoverse V1:</summary>
+### Explicit scene evaluation
 
-```bash
-python3 evaluate_flow_calibration.py --weights /data/cmrnext-calib-LEnc-iter1.tar /data/cmrnext-calib-LEnc-iter5.tar /data/cmrnext-calib-LEnc-iter6.tar --data_folder /data/argoverse/argoverse-tracking/ --dataset argoverse
-```
-Example results:
-<p align="center">
-  <img src="assets/results_argoverse.png" alt="Argoverse" width="1200" />
-</p>
-</details>
+~~~bash
+python test.py scene \
+  --config config/train_mid360_multi_extrinsic.yaml \
+  --level perturbed_t0 \
+  --weights checkpoints/stage1.tar checkpoints/stage2.tar \
+  --start-stage 1 --num-workers 4 --seed 42 --gpu 1 \
+  --errors-json evaluation_reports/mid360/ti_2stage_errors.json \
+  --log-file evaluation_reports/mid360/ti_2stage_evaluation.log \
+  --dry-run
+~~~
 
-<details>
-<summary>Pandaset:</summary>
+Omit `--scene-paths` only when the YAML provides a non-empty `dataset.scenes.test` list.
 
-```bash
-python3 evaluate_flow_calibration.py --weights /data/cmrnext-calib-LEnc-iter1.tar /data/cmrnext-calib-LEnc-iter5.tar /data/cmrnext-calib-LEnc-iter6.tar --data_folder /data/pandaset/ --dataset pandaset
-```
-Example results:
-<p align="center">
-  <img src="assets/results_pandaset.png" alt="Pandaset" width="1200" />
-</p>
-</details>
+### KITTI fixed left/right camera extrinsics
 
-### Inference on your own dataset
-To run extrinsic calibration on your own dataset, record multiple (the more, the better) synchronized image-point cloud pairs. The easiest way to do this, is to record one image-point cloud pair with the robot stationary, and repeat it at different locations.
-> [!CAUTION]
-> If you decide to record data while the robot is moving, then you have to make sure that point clouds are undistorted (motion compensated), and time-synchronized to match the timestamp of the camera. If you don't do that, there is no way to recover an accurate extrinsic calibration.
+Camera `2` is the rectified left camera and camera `3` is the rectified right camera. The target camera supplies the image, intrinsics, and `Ti`; the other camera supplies the fixed physical `T0`. They must differ.
 
-Then, place your **UNDISTORTED** images in a folder named `camera`, and your point clouds in a folder named `lidar`.
-The filenames of matching camera and lidar pairs must be the same (except fot the extension).
-Additionally, create a file named `calibration.yaml`, where you have to provide intrinsic parameters of your camera, and an initial extrinsic transformation.
-The goal of this transformation is mostly to change the axis of the LiDAR such that it face the same direction of the camera.
-Without an appropriate initial calibration, the method will not work.
+~~~bash
+python test.py kitti \
+  --config config/train_mid360_multi_extrinsic.yaml \
+  --data-root /data/KITTI/sequences --sequences 00 \
+  --target-cam 2 --nominal-cam 3 \
+  --weights checkpoints/model/last_iter_checkpoint.tar \
+  --start-stage 1 --num-workers 4 --seed 42 --gpu 0 \
+  --errors-json evaluation_reports/kitti_fixed/errors.json \
+  --log-file evaluation_reports/kitti_fixed/evaluation.log \
+  --dry-run
+~~~
 
-We provide a sample dataset recorded with our in-house robot in `sample_custom_dataset`. The final folder structure should look like:
-```bash
-\data\custom_dataset\
-├── camera
-│   ├── 000000.png
-│   ├── 000001.png
-│   ├── ...
-├── lidar
-│   ├── 000000.pcd
-│   ├── 000001.pcd
-│   ├── ...
-└── calibration.yaml
-```
-Different point clouds format are supported.
-After your data is ready, run CMRNext:
-```python
-python3 evaluate_flow_calibration.py --weights /data/cmrnext-calib-LEnc-iter1.tar /data/cmrnext-calib-LEnc-iter5.tar /data/cmrnext-calib-LEnc-iter6.tar --data_folder ./sample_custom_dataset --dataset custom --num_worker 2 --quantile 1.0 --max_r 0 --max_t 0 --downsample --viz
-```
-The `--viz` is useful to visualize and debug, but will slow down the inference, you can remove it after checking that the initial projection and the predicted projection are as expected.
-<details>
-<summary>The visualization looks like this:</summary>
-<p align="center">
-  <img src="assets/custom_viz.png" alt="Visualization" width="1200" />
-</p>
-</details>
-If you see no points projection in the top image, or if the points are flipped 90 degrees, it means that the initial extrinsic calibration provided is incorrect.
+Use `test.py kitti-perturbed` only to reproduce the original CMRNext perturbation benchmark. Paper-scale defaults are `--max-t 1.5`, `--max-r 20`, and `--seed 42`.
 
-The `--downsample` argument should give better results for most use cases, but if your camera images looks similar to the ones in the KITTI dataset, then you might try removing the argument and check if the results are better.
+## Adapting to another LiDAR
 
-### Extrinsic Calibration Training
-To train the Camera-LiDAR extrinsic calibration models, run the following commands:
-```bash
-python3 train_calibration.py  --savemodel /data/iter1/ --data_folder_argo /data/argoverse/argoverse-tracking/ --data_folder_kitti /data/KITTI/sequences/ --data_folder_panda /data/pandaset/ --max_r 20 --max_t 1.5
-python3 train_calibration.py  --savemodel /data/iter2/ --data_folder_argo /data/argoverse/argoverse-tracking/ --data_folder_kitti /data/KITTI/sequences/ --data_folder_panda /data/pandaset/ --max_r 1 --max_t 0.1
-python3 train_calibration.py  --savemodel /data/iter3/ --data_folder_argo /data/argoverse/argoverse-tracking/ --data_folder_kitti /data/KITTI/sequences/ --data_folder_panda /data/pandaset/ --max_r 0.2 --max_t 0.05
-```
+Change these YAML fields to describe the point clouds that were actually generated:
 
-## Monocular Localization in LiDAR Maps
-This section contains the steps to perform inference for monocular localization in LiDAR maps. First, we need to create the LiDAR maps for each dataset.
+| Field | Meaning |
+|---|---|
+| `rings` | Physical channels or virtual groups used during generation |
+| `points_per_ring` | Points or emitted beams represented per ring/group |
+| `vertical_fov_deg` | Minimum and maximum vertical beam angles |
+| `repeated_pattern` | `true` for repeating rotary scans; `false` for non-repeating patterns such as MID360 |
+| `scan_frequency_hz` | Physical scan frequency |
+| `beams_per_scan` | Emitted beams in one scan period |
+| `beam_rate_hz` | Must equal `beams_per_scan * scan_frequency_hz` |
+| `accumulation_duration_s` | Time window already accumulated into each offline point cloud |
 
-### LiDAR Map Generation
+Also replace camera `width`, `height`, `fx`, `fy`, `cx`, `cy`, and `skew`. `preprocessing.resize_hw` controls online resize and intrinsics are scaled with the image. The loader audits acquisition values but does not accumulate point clouds online. Changing `accumulation_duration_s` therefore requires matching offline point clouds.
 
-#### KITTI
-To generate the LiDAR maps of the KITTI dataset, run the following commands one after the other:
+A rotary multi-line LiDAR normally uses `repeated_pattern: true` and one complete scan period. A non-repeating LiDAR uses `false`, its actual beam rate, and the offline accumulation window.
 
-```bash
-python3 -m preprocess.kitti_maps_semantic --base_folder /data/KITTI/ --sequence 00
-python3 -m preprocess.kitti_maps_semantic --base_folder /data/KITTI/ --sequence 03
-python3 -m preprocess.kitti_maps_semantic --base_folder /data/KITTI/ --sequence 04
-python3 -m preprocess.kitti_maps_semantic --base_folder /data/KITTI/ --sequence 05
-python3 -m preprocess.kitti_maps_semantic --base_folder /data/KITTI/ --sequence 06
-python3 -m preprocess.kitti_maps_semantic --base_folder /data/KITTI/ --sequence 07
-python3 -m preprocess.kitti_maps_semantic --base_folder /data/KITTI/ --sequence 08
-python3 -m preprocess.kitti_maps_semantic --base_folder /data/KITTI/ --sequence 09
-```
+## Upstream, citation, and license
 
-#### Argoverse
-To generate the LiDAR maps of the Argoverse dataset, run the following command:
+- Original CMRNext paper code: https://github.com/robot-learning-freiburg/CMRNext
+- Project page: https://cmrnext.cs.uni-freiburg.de/
+- Paper: *CMRNext: Camera to LiDAR Matching in the Wild for Localization and Extrinsic Calibration*
+- arXiv: https://arxiv.org/abs/2402.00129
+- IEEE T-RO: https://ieeexplore.ieee.org/document/10908048
 
-```bash
-python3 -m preprocess.argoverse --base_folder /data/argoverse/argoverse-tracking
-```
-
-#### Pandaset
-To generate the LiDAR maps of the Pandaset dataset, run the following command:
-
-```bash
-python3 -m preprocess.pandaset --base_folder /data/pandaset
-```
-
-### Inference
-
-Run the inference for monocular localization in LiDAR maps within the Docker container, assuming the weights and the datasets are located under `\data\ `. Change the paths according to your setup. Click on the specific dataset to see the exact command to run.
-<details>
-<summary>KITTI:</summary>
-
-```bash
-python3 evaluate_flow_localization.py --weights /data/cmrnext-iter1.tar /data/cmrnext-iter2.tar /data/cmrnext-iter3.tar --data_folder /data/KITTI/sequences/ --dataset kitti
-```
-</details>
-
-<details>
-<summary>Argoverse:</summary>
-
-```bash
-python3 evaluate_flow_localization.py --weights /data/cmrnext-iter1.tar /data/cmrnext-iter2.tar /data/cmrnext-iter3.tar --data_folder /data/argoverse/argoverse_tracking/ --dataset argoverse
-```
-</details>
-
-<details>
-<summary>Pandaset:</summary>
-
-```bash
-python3 evaluate_flow_localization.py --weights /data/cmrnext-iter1.tar /data/cmrnext-iter2.tar /data/cmrnext-iter3.tar --data_folder /data/pandaset/ --dataset pandaset
-```
-</details>
-
-## Troubleshooting
-
-In this section we cover common problems and how to solve them.
-<details>
-<summary>docker: Error response from daemon: Unknown runtime specified nvidia.</summary>
-
-If you receive this error while starting the docker
-
-```bash
-docker: Error response from daemon: Unknown runtime specified nvidia.
-```
-Run the docker with this command instead:
-```bash
-docker run --gpus=all --shm-size=2g -it -v /tmp/.X11-unix:/tmp/.X11-unix -v PATH_TO_DATA:/data -e DISPLAY -e XAUTHORITY -e NVIDIA_DRIVER_CAPABILITIES=all cmrnext
-```
-</details>
-
-
-## Acknowledgement
-In our work and experiments, we have used components from other works. We thank the authors for open-sourcing their code.
-- RAFT: https://github.com/princeton-vl/RAFT
-- CMRNet: https://github.com/cattaneod/CMRNet
-- https://github.com/dilaragokay/central-tendency-rotations/
-- KISS-ICP: https://github.com/PRBonn/kiss-icp
-- https://github.com/tomrunia/OpticalFlow_Visualization
-
-## Contacts
-* [Daniele Cattaneo](https://rl.uni-freiburg.de/people/cattaneo)
-* [Abhinav Valada](https://rl.uni-freiburg.de/people/valada)
-
-## License
-For academic usage, the code is released under the [GPLv3](https://www.gnu.org/licenses/gpl-3.0.en.html) license. For any commercial purpose, please contact the authors.
+This repository keeps the upstream [GNU GPLv3 license](LICENSE). Preserve upstream copyright and license notices when redistributing this fork. Replace `/path/to/dataset_root` and the example scenes in the YAML files with paths to your own data.

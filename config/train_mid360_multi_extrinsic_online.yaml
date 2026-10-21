@@ -1,0 +1,83 @@
+# MID360 per-frame Ti online perturbation.
+schema_version: cmrnext_scene_calibration_v1
+
+# Scene paths are relative to dataset.root; paths do not imply data roles.
+# Replace the example scenes with local data.
+dataset:
+  root: /path/to/dataset_root
+  source_mode: calibnet_stored_residuals_v1
+  training_semantics: nominal_to_true_residual_v1
+  target_network: calibnet
+  dummy_intensity: 0.0
+  scenes:
+    train:
+      - train/scene_001
+    validation: []
+    test:
+      - test/scene_001
+  # Scene matrices use the camera_from_lidar column-vector convention.
+  # Files store T0, per-frame Ti, and Ti @ inverse(T0), respectively.
+  files:
+    calibration: calib.txt
+    nominal_extrinsic: nominal_extrinsic.txt
+    true_extrinsics: poses.txt
+    residuals: residuals.txt
+  sensor:
+    profile: livox_mid360_nonrepeating_0p5s
+    # Intrinsics are scaled when the 2048x1536 images are resized.
+    camera:
+      width: 2048
+      height: 1536
+      fx: 1199.95
+      fy: 1198.41
+      cx: 1015.97
+      cy: 800.259
+      skew: 0
+    lidar:
+      rings: 4
+      points_per_ring: 5000
+      vertical_fov_deg: [-7.2123, 52.164]
+      acquisition:
+        repeated_pattern: false
+        scan_frequency_hz: 10.0
+        beams_per_scan: 20000
+        # Match root/scenes to point clouds generated with this duration.
+        # The loader audits metadata but does not rebuild scans.
+        beam_rate_hz: 200000.0
+        accumulation_duration_s: 0.5
+  validation:
+    transform_atol: 1.0e-5
+    require_sequence_audit: true
+    require_continuous_coverage: false
+
+preprocessing:
+  # Train with --img_shape 576 768; evaluation keeps the full resized view.
+  resize_hw: [768, 1024]
+  evaluation_crop:
+    top: 0
+    left: 0
+    height: 768
+    width: 1024
+
+augmentation:
+  color_jitter: false
+  geometric: false
+  crop_top: [0, 192]
+  crop_left: [0, 256]
+
+# Sample delta per access and set T_input = inverse(delta) @ Ti.
+# Sample each axis uniformly within 8 cm and 1.5 degrees.
+per_ti_online_perturbation:
+  enabled: true
+  sampler: cmrnext_legacy_per_axis_box_v1
+  max_translation_component_m: 0.08
+  max_rotation_euler_component_deg: 1.5
+  train_resample_each_access: true
+
+evaluation:
+  success_translation_m: 0.10
+  success_rotation_deg: 1.0
+  residual_magnitude_bins: [0.0, 0.1, 0.2, 0.35]
+
+curriculum:
+  iter1: perturbed_t0
